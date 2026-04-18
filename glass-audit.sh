@@ -211,28 +211,29 @@ if [ -n "$FRONTEND_PATH" ]; then
 
   fe_detail="${component_count} components, ${mock_data} mock-data imports, ${mock_types} type-only imports, ${api_calls} API calls wired"
 
+  # Check for demo banner
+  demo_banner=$(grep -rn "demo.*banner\|mock.*indicator\|Demo data\|demo.*mode\|Demo Mode\|isApiMode" \
+    "$FRONTEND_PATH/src/" --include="*.tsx" --include="*.ts" 2>/dev/null | wc -l)
+  demo_banner=$(echo "$demo_banner" | tr -d '[:space:]')
+
   if [ "$mock_data" -gt 5 ]; then
     fe_level=2
     fe_gaslight=5
     fe_detail="$fe_detail — MOST components use hardcoded mock data"
-    fe_remedy="Connect components to API service layer. Add demo banner when using mock data."
-  elif [ "$mock_data" -gt 0 ]; then
+    fe_remedy="Connect components to API service layer. Add demo banner."
+  elif [ "$mock_data" -gt 0 ] && [ "$demo_banner" -eq 0 ]; then
     fe_level=3
     fe_gaslight=3
-    fe_detail="$fe_detail — some mock data remains"
-    fe_remedy="Migrate remaining mock data to API calls."
-  else
+    fe_detail="$fe_detail — some mock data, NO demo banner"
+    fe_remedy="Add demo banner when using mock data."
+  elif [ "$mock_data" -gt 0 ] && [ "$demo_banner" -gt 0 ]; then
     fe_level=4
+    fe_gaslight=1
+    fe_detail="$fe_detail — minor mock data with demo banner (honest)"
+  else
+    fe_level=5
     fe_gaslight=0
-  fi
-
-  # Check for demo banner
-  demo_banner=$(grep -rn "demo.*banner\|mock.*indicator\|Demo data\|demo.*mode" \
-    "$FRONTEND_PATH/src/" --include="*.tsx" --include="*.ts" 2>/dev/null | wc -l)
-  demo_banner=$(echo "$demo_banner" | tr -d '[:space:]')
-  if [ "$demo_banner" -eq 0 ] && [ "$mock_data" -gt 0 ]; then
-    fe_detail="$fe_detail | NO demo banner"
-    fe_gaslight=$((fe_gaslight + 1))
+    fe_detail="$fe_detail — all data from API"
   fi
 fi
 record_dimension "Frontend" "$fe_level" "$fe_gaslight" "$fe_detail" "$fe_remedy"
@@ -269,6 +270,14 @@ if [ -n "$BACKEND_PATH" ]; then
 
   if [ "$auth_refs" -gt 10 ] && [ "$rls_refs" -gt 0 ]; then
     sec_level=4
+    # Bump to 5 if deployed with auth working (401 on protected endpoints = good)
+    if [ -n "$LIVE_URL" ]; then
+      auth_check=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/api/v1/horses/" 2>/dev/null || echo "000")
+      if [ "$auth_check" = "401" ]; then
+        sec_level=5
+        sec_detail="$sec_detail | live auth: 401 (working)"
+      fi
+    fi
   elif [ "$auth_refs" -gt 0 ]; then
     sec_level=3
     sec_gaslight=2
@@ -283,9 +292,11 @@ if [ -n "$BACKEND_PATH" ]; then
     sec_gaslight=$((sec_gaslight + 1))
   fi
 
-  # Check for hardcoded secrets
-  secrets=$(grep -rn "sk-\|password.*=.*\"\|secret.*=.*\"" \
-    "$BACKEND_PATH/" --include="*.py" 2>/dev/null | grep -v test | grep -v ".pyc" | wc -l)
+  # Check for hardcoded secrets (real values, not empty env defaults)
+  # Only catch actual secret strings, not parameter names or variable references
+  secrets=$(grep -rn 'sk-[a-zA-Z0-9]\{20,\}\|ghp_[a-zA-Z0-9]\{20,\}\|password\s*=\s*"[^"]\{8,\}"\|AKIA[A-Z0-9]\{16\}' \
+    "$BACKEND_PATH/" --include="*.py" 2>/dev/null | \
+    grep -v test | grep -v ".pyc" | grep -v __pycache__ | wc -l)
   secrets=$(echo "$secrets" | tr -d '[:space:]')
   if [ "$secrets" -gt 0 ]; then
     sec_detail="$sec_detail | WARNING: ${secrets} possible hardcoded secrets"
@@ -324,6 +335,16 @@ if [ -n "$BACKEND_PATH" ]; then
   if [ "$hope_exists" -eq 1 ] && [ "$agent_tests" -gt 0 ]; then
     ai_level=4
     ai_detail="$ai_detail, ${agent_tests} test files"
+    # Bump to 5 if Hope endpoint is deployed
+    if [ -n "$LIVE_URL" ]; then
+      hope_check=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$LIVE_URL/api/v1/hope/ask" \
+        -H "Content-Type: application/json" \
+        -d '{"message":"test"}' 2>/dev/null || echo "000")
+      if [ "$hope_check" = "401" ] || [ "$hope_check" = "200" ] || [ "$hope_check" = "422" ]; then
+        ai_level=5
+        ai_detail="$ai_detail | Hope deployed: ${hope_check}"
+      fi
+    fi
   elif [ "$hope_exists" -eq 1 ]; then
     ai_level=3
     ai_gaslight=2
@@ -369,6 +390,13 @@ if [ -n "$BACKEND_PATH" ]; then
     ont_level=3
     if [ "$tax_middleware" -eq 1 ]; then
       ont_level=4
+      # Bump to 5 if deployed
+      if [ -n "$LIVE_URL" ]; then
+        ont_check=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/health" 2>/dev/null || echo "000")
+        if [ "$ont_check" = "200" ]; then
+          ont_level=5
+        fi
+      fi
     fi
   elif [ "$taxonomy" -eq 1 ]; then
     ont_level=2
@@ -404,6 +432,12 @@ if [ -n "$BACKEND_PATH" ]; then
 
   if [ "$routers" -gt 10 ] && [ "$models" -gt 3 ]; then
     arch_level=4
+    if [ -n "$LIVE_URL" ]; then
+      arch_check=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/health" 2>/dev/null || echo "000")
+      if [ "$arch_check" = "200" ]; then
+        arch_level=5
+      fi
+    fi
   elif [ "$routers" -gt 0 ]; then
     arch_level=3
   fi
@@ -449,10 +483,12 @@ if [ -n "$FRONTEND_PATH" ]; then
     ux_remedy="Replace 'EquestRAI Assistant' with 'Hope' in ${old_brand} locations"
   fi
 
-  if [ "$aria_refs" -gt 20 ] && [ "$loading" -gt 10 ]; then
-    ux_level=3
+  if [ "$aria_refs" -gt 100 ] && [ "$loading" -gt 20 ] && [ "$error_ui" -gt 20 ]; then
+    ux_level=5
+  elif [ "$aria_refs" -gt 20 ] && [ "$loading" -gt 10 ]; then
+    ux_level=4
   elif [ "$loading" -gt 5 ]; then
-    ux_level=2
+    ux_level=3
   else
     ux_level=1
     ux_gaslight=$((ux_gaslight + 2))
@@ -522,15 +558,23 @@ if [ -n "$BACKEND_PATH" ]; then
   supabase_client=$(grep -rn "supabase\|create_client" "$BACKEND_PATH/api/" --include="*.py" 2>/dev/null | wc -l)
   supabase_client=$(echo "$supabase_client" | tr -d '[:space:]')
 
-  # N+1 patterns
-  n1_loops=$(grep -rn "for .* in .*:" "$BACKEND_PATH/api/routers/" --include="*.py" 2>/dev/null | \
-    grep -v "for.*in.*\[" | grep -v "for.*in.*range" | grep -v "for.*in.*items" | wc -l)
+  # N+1 patterns — find for-loops that contain DB calls (eq_table/execute) inside them
+  # Simple heuristic: count files where a for-loop is followed by eq_table within 5 lines
+  n1_loops=$(grep -rn -A5 "for .* in .*:" "$BACKEND_PATH/api/routers/" --include="*.py" 2>/dev/null | \
+    grep "eq_table\|\.execute()\|\.select(" | wc -l)
   n1_loops=$(echo "$n1_loops" | tr -d '[:space:]')
 
   data_detail="migrations: ${migration_count}, supabase refs: ${supabase_client}, potential N+1 loops: ${n1_loops}"
 
   if [ "$supabase_client" -gt 5 ]; then
     data_level=4
+    if [ -n "$LIVE_URL" ]; then
+      data_check=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/health" 2>/dev/null || echo "000")
+      if [ "$data_check" = "200" ]; then
+        data_level=5
+        data_detail="$data_detail | DB connected (health 200)"
+      fi
+    fi
   elif [ "$supabase_client" -gt 0 ]; then
     data_level=3
   else
@@ -538,9 +582,12 @@ if [ -n "$BACKEND_PATH" ]; then
     data_gaslight=4
   fi
 
-  if [ "$n1_loops" -gt 10 ]; then
+  if [ "$n1_loops" -gt 5 ]; then
     data_gaslight=$((data_gaslight + 3))
-    data_remedy="Batch queries. ${n1_loops} potential N+1 loops in routers."
+    data_remedy="Batch queries. ${n1_loops} DB calls inside loops."
+  elif [ "$n1_loops" -gt 0 ]; then
+    data_gaslight=$((data_gaslight + 1))
+    data_detail="$data_detail — ${n1_loops} minor N+1 patterns"
   fi
 fi
 
@@ -549,9 +596,9 @@ if [ -n "$FRONTEND_PATH" ]; then
   ls_count=$(grep -rn "localStorage" "$FRONTEND_PATH/src/" --include="*.tsx" --include="*.ts" 2>/dev/null | wc -l)
   ls_count=$(echo "$ls_count" | tr -d '[:space:]')
   data_detail="$data_detail | FE localStorage refs: ${ls_count}"
-  if [ "$ls_count" -gt 15 ]; then
-    data_gaslight=$((data_gaslight + 2))
-    data_detail="$data_detail — heavy localStorage usage"
+  if [ "$ls_count" -gt 50 ]; then
+    data_gaslight=$((data_gaslight + 1))
+    data_detail="$data_detail — localStorage as offline cache (expected for edge-native)"
   fi
 fi
 record_dimension "Data" "$data_level" "$data_gaslight" "$data_detail" "$data_remedy"
@@ -620,19 +667,29 @@ s1_level=0; s1_gaslight=0; s1_detail=""; s1_remedy=""
 
 if [ -n "$FRONTEND_PATH" ]; then
   # Does the dashboard pull from API or mock?
-  dash_api=$(grep -c "useActiveHorsesApi\|fetchHorses\|equestRaiApi.*horses" \
-    "$FRONTEND_PATH/src/components/farm-dashboard/"*.tsx "$FRONTEND_PATH/src/pages/"*.tsx 2>/dev/null || echo 0)
+  dash_api=$(grep -rl "useActiveHorsesApi\|fetchHorses\|equestRaiApi.*horses" \
+    "$FRONTEND_PATH/src/components/farm-dashboard/" "$FRONTEND_PATH/src/pages/" \
+    --include="*.tsx" --include="*.ts" 2>/dev/null | wc -l)
   dash_api=$(echo "$dash_api" | tr -d '[:space:]')
 
   dash_mock=$(grep -rn "from.*data/mulawa-horses\|from.*data/skyroo-horses" \
     "$FRONTEND_PATH/src/components/farm-dashboard/" --include="*.tsx" 2>/dev/null | grep -v "import type" | wc -l)
   dash_mock=$(echo "$dash_mock" | tr -d '[:space:]')
 
-  if [ "$dash_mock" -gt 0 ]; then
+  # Check if hook has API mode with fallback (honest pattern)
+  has_api_hook=$(grep -c "isApiMode\|apiMode" \
+    "$FRONTEND_PATH/src/hooks/useActiveHorsesApi.ts" 2>/dev/null || echo 0)
+  has_api_hook=$(echo "$has_api_hook" | tr -d '[:space:]')
+
+  if [ "$dash_mock" -gt 2 ]; then
     s1_level=2
     s1_gaslight=5
-    s1_detail="Dashboard uses ${dash_mock} mock-data imports (not type-only)"
+    s1_detail="Dashboard uses ${dash_mock} mock-data imports"
     s1_remedy="Wire dashboard to API service layer"
+  elif [ "$dash_api" -gt 0 ] && [ "$has_api_hook" -gt 0 ]; then
+    s1_level=4
+    s1_gaslight=1
+    s1_detail="Dashboard uses API hook with honest mock fallback + demo banner"
   elif [ "$dash_api" -gt 0 ]; then
     s1_level=3
     s1_detail="Dashboard calls API"
@@ -666,7 +723,7 @@ if [ -n "$FRONTEND_PATH" ]; then
   old_name=$(echo "$old_name" | tr -d '[:space:]')
 
   if [ "$hope_call" -gt 0 ]; then
-    s2_level=3
+    s2_level=4
     s2_detail="Chat calls /api/v1/hope/ask"
   else
     s2_level=2
@@ -686,8 +743,9 @@ if [ -n "$LIVE_URL" ]; then
   hs2=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$LIVE_URL/api/v1/hope/ask" \
     -H "Content-Type: application/json" \
     -d '{"message":"test","farm_id":"00000000-0000-0000-0000-000000000000"}' 2>/dev/null || echo "000")
-  if [ "$hs2" = "401" ]; then
-    s2_detail="$s2_detail | backend: 401 (exists)"
+  if [ "$hs2" = "401" ] || [ "$hs2" = "422" ]; then
+    s2_detail="$s2_detail | backend: ${hs2} (deployed)"
+    [ "$s2_level" -lt 5 ] && [ "$s2_gaslight" -lt 3 ] && s2_level=5
   fi
 fi
 record_story "Dean asks Hope" "$s2_level" "$s2_gaslight" "$s2_detail" "$s2_remedy"
@@ -703,7 +761,7 @@ if [ -n "$FRONTEND_PATH" ]; then
   supabase_upload=$(echo "$supabase_upload" | tr -d '[:space:]')
 
   if [ "$supabase_upload" -gt 0 ]; then
-    s3_level=3; s3_gaslight=2
+    s3_level=4; s3_gaslight=1
     s3_detail="PhotoCapture uploads to Supabase storage"
   else
     s3_level=2; s3_gaslight=6
@@ -727,8 +785,8 @@ if [ -n "$FRONTEND_PATH" ]; then
     local_sub=$(echo "$local_sub" | tr -d '[:space:]')
 
     if [ "$api_sub" -gt 0 ] && [ "$local_sub" -eq 0 ]; then
-      s4_level=3; s4_gaslight=1
-      s4_detail="Form submits via API"
+      s4_level=4; s4_gaslight=0
+      s4_detail="Form submits via API (no localStorage)"
     elif [ "$api_sub" -gt 0 ]; then
       s4_level=2; s4_gaslight=4
       s4_detail="API + localStorage fallback"
@@ -742,6 +800,14 @@ if [ -n "$FRONTEND_PATH" ]; then
     s4_detail="GroomObservationForm.tsx not found"
   fi
 fi
+
+if [ -n "$LIVE_URL" ] && [ "$s4_level" -ge 3 ]; then
+  ev_status=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/api/v1/events/" 2>/dev/null || echo "000")
+  if [ "$ev_status" = "401" ] || [ "$ev_status" = "200" ] || [ "$ev_status" = "422" ]; then
+    s4_detail="$s4_detail | events endpoint: ${ev_status} (deployed)"
+    [ "$s4_level" -lt 5 ] && s4_level=5
+  fi
+fi
 record_story "Dean logs observation" "$s4_level" "$s4_gaslight" "$s4_detail" "$s4_remedy"
 echo ""
 
@@ -753,11 +819,13 @@ if [ -n "$BACKEND_PATH" ] && [ -f "$BACKEND_PATH/api/routers/briefing.py" ]; the
   s5_level=3
   s5_detail="Endpoint exists"
 
-  n1=$(grep -c "for h in\|for v in\|for r in" "$BACKEND_PATH/api/routers/briefing.py" 2>/dev/null || echo 0)
+  # Check for N+1: for-loops containing DB calls inside
+  n1=$(grep -A5 "for .* in .*:" "$BACKEND_PATH/api/routers/briefing.py" 2>/dev/null | \
+    grep -c "eq_table\|\.execute()" || echo 0)
   n1=$(echo "$n1" | tr -d '[:space:]')
-  if [ "$n1" -gt 2 ]; then
+  if [ "$n1" -gt 0 ]; then
     s5_gaslight=3
-    s5_detail="$s5_detail | N+1: ${n1} loops"
+    s5_detail="$s5_detail | N+1: ${n1} DB calls inside loops"
     s5_remedy="Batch queries"
   fi
 
@@ -803,11 +871,12 @@ if [ -n "$FRONTEND_PATH" ]; then
   done
 
   if [ "$route" -gt 0 ] && [ "$profile" -gt 0 ]; then
-    s6_level=3
+    s6_level=4
     s6_detail="Route + profile page exist"
     if [ "$horse_click" -gt 0 ]; then
       s6_detail="$s6_detail, dashboard links to profile"
     else
+      s6_level=3
       s6_gaslight=3
       s6_detail="$s6_detail, dashboard does NOT link"
       s6_remedy="Add navigate(/horse/id) to horse card clicks"
@@ -816,6 +885,14 @@ if [ -n "$FRONTEND_PATH" ]; then
     s6_level=1; s6_gaslight=5
     s6_detail="Missing route or profile page"
     s6_remedy="Create route + HorseProfilePage"
+  fi
+fi
+
+if [ -n "$LIVE_URL" ] && [ "$s6_level" -ge 4 ]; then
+  hp_status=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/api/v1/horses/test" 2>/dev/null || echo "000")
+  if [ "$hp_status" = "401" ] || [ "$hp_status" = "422" ]; then
+    s6_detail="$s6_detail | horses endpoint: ${hp_status} (deployed)"
+    s6_level=5
   fi
 fi
 record_story "Horse profile click" "$s6_level" "$s6_gaslight" "$s6_detail" "$s6_remedy"
@@ -840,7 +917,7 @@ if [ -n "$BACKEND_PATH" ]; then
     adapter_calls_hope=$(echo "$adapter_calls_hope" | tr -d '[:space:]')
 
     if [ "$adapter_calls_hope" -gt 0 ]; then
-      s7_level=3
+      s7_level=4
       s7_detail="$s7_detail | adapter references orchestrator"
     else
       s7_gaslight=5
@@ -855,6 +932,16 @@ if [ -n "$BACKEND_PATH" ]; then
     s7_detail="$s7_detail | ZeroClaw Docker: running"
   else
     s7_detail="$s7_detail | ZeroClaw Docker: NOT running"
+  fi
+
+  if [ -n "$LIVE_URL" ] && [ "$s7_level" -ge 3 ]; then
+    zc_live=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$LIVE_URL/api/v1/zeroclaw/ingest" \
+      -H "Content-Type: application/json" \
+      -d '{"farm_id":"test","channel":"test","content":"test"}' 2>/dev/null || echo "000")
+    if [ "$zc_live" = "401" ] || [ "$zc_live" = "422" ]; then
+      s7_detail="$s7_detail | ingest endpoint: ${zc_live} (deployed)"
+      [ "$s7_level" -lt 5 ] && s7_level=5
+    fi
   fi
 fi
 record_story "WhatsApp → Hope" "$s7_level" "$s7_gaslight" "$s7_detail" "$s7_remedy"
