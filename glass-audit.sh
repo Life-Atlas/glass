@@ -936,6 +936,38 @@ for i in "${!STORY_GASLIGHTS[@]}"; do
   [ "${STORY_GASLIGHTS[$i]}" -ge 4 ] && critical=$((critical + 1))
 done
 
+# ═══════════════════════════════════════════════════
+# TOTAL SCORE — single number out of 100
+# Formula: (avg_level / 7) * 100, penalized by gaslight
+# Penalty: -5 points per critical gaslight item
+# ═══════════════════════════════════════════════════
+
+total_points=$((dim_total + story_total))
+max_points=$(( (DIM_COUNT + STORY_COUNT) * 7 ))
+if [ "$max_points" -gt 0 ]; then
+  raw_score=$(( (total_points * 100) / max_points ))
+else
+  raw_score=0
+fi
+gaslight_penalty=$((critical * 5))
+total_score=$((raw_score - gaslight_penalty))
+[ "$total_score" -lt 0 ] && total_score=0
+
+# Color the score
+if [ "$total_score" -ge 70 ]; then
+  score_color="$GREEN"
+elif [ "$total_score" -ge 40 ]; then
+  score_color="$YELLOW"
+else
+  score_color="$RED"
+fi
+
+echo -e "  ${BOLD}════════════════════════════════════════${NC}"
+echo -e "  ${BOLD}  TOTAL SCORE: ${score_color}${BOLD}${total_score}/100${NC}"
+echo -e "  ${DIM}  (${raw_score} raw - ${gaslight_penalty} gaslight penalty)${NC}"
+echo -e "  ${BOLD}════════════════════════════════════════${NC}"
+echo ""
+
 if [ "$critical" -eq 0 ]; then
   echo -e "  Verdict: ${GREEN}${BOLD}HONEST STATE${NC} — no critical gaslight issues"
 elif [ "$critical" -le 3 ]; then
@@ -988,6 +1020,7 @@ cat >> "$REPORT_FILE" << SUMMARY
 - Stories: $STORY_COUNT tested, avg $(level_label $story_avg) ($story_avg/7), gaslight avg $story_gaslight_avg
 - Overall: $(level_label $overall_avg) ($overall_avg/7), gaslight $overall_gaslight
 - Critical issues (gaslight >= 4): $critical
+- **TOTAL SCORE: ${total_score}/100** (${raw_score} raw - ${gaslight_penalty} gaslight penalty)
 - Verdict: $([ "$critical" -eq 0 ] && echo "HONEST STATE" || ([ "$critical" -le 3 ] && echo "NEEDS WORK" || echo "GASLIGHT RISK"))
 - Generated: $(timestamp)
 SUMMARY
