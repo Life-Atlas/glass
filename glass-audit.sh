@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# ATLAS v2 — User Story E2E Audit
-# NOT siloed. Tests the full flow: frontend → backend → database → response
+# GLASS v3 — 10-Dimension + User Story Audit
+# Gaslight-Less Accountability for Software Shipping
 #
 # Usage:
-#   bash atlas-audit.sh --frontend PATH --backend PATH --url URL
+#   bash glass-audit.sh --frontend PATH --backend PATH [--url URL] [--report FILE]
 #
-# Runs user stories end-to-end, scores BEFORE and AFTER, generates report.
+# Dimensions: Backend, Frontend, Security, AI, Ontology, Architecture, UI/UX, DevOps, Data, E2E
+# Stories: User-story-driven flow tests (UI → API → DB → Response)
 
 set -uo pipefail
 
@@ -13,6 +14,7 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m'
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -20,13 +22,7 @@ DIM='\033[2m'
 FRONTEND_PATH=""
 BACKEND_PATH=""
 LIVE_URL=""
-REPORT_FILE="atlas-report-$(date +%Y%m%d-%H%M%S).md"
-STORIES=()
-INITIAL_SCORES=()
-FINAL_SCORES=()
-TOTAL_INITIAL=0
-TOTAL_FINAL=0
-STORY_COUNT=0
+REPORT_FILE="glass-report-$(date +%Y%m%d-%H%M%S).md"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -48,61 +44,86 @@ level_label() {
   case $1 in
     0) echo "DISCUSSED" ;; 1) echo "DESIGNED" ;; 2) echo "CODED" ;;
     3) echo "BUILDS" ;; 4) echo "TESTED" ;; 5) echo "DEPLOYED" ;;
-    6) echo "MACHINE-VERIFIED" ;; 7) echo "ACCEPTED" ;; *) echo "UNKNOWN" ;;
+    6) echo "VERIFIED" ;; 7) echo "ACCEPTED" ;; *) echo "UNKNOWN" ;;
   esac
 }
 
 gaslight_color() {
-  if [ "$1" -ge 5 ]; then echo "$RED"
-  elif [ "$1" -ge 3 ]; then echo "$YELLOW"
+  local g="$1"
+  if [ "$g" -ge 5 ]; then echo "$RED"
+  elif [ "$g" -ge 3 ]; then echo "$YELLOW"
   else echo "$GREEN"; fi
 }
 
-# Record a user story result
-# Args: story_name initial_level final_level gaslight detail remedy
-record_story() {
-  local name="$1" initial="$2" final="$3" gaslight="$4" detail="$5" remedy="${6:-}"
-  local color
+# Dimension scores: name level gaslight detail remedy
+declare -a DIM_NAMES=()
+declare -a DIM_LEVELS=()
+declare -a DIM_GASLIGHTS=()
+declare -a DIM_DETAILS=()
+declare -a DIM_REMEDIES=()
+DIM_COUNT=0
+
+record_dimension() {
+  local name="$1" level="$2" gaslight="$3" detail="$4" remedy="${5:-}"
+  local color ll
   color=$(gaslight_color "$gaslight")
-  local il fl
-  il=$(level_label "$initial")
-  fl=$(level_label "$final")
+  ll=$(level_label "$level")
 
-  STORIES+=("$name")
-  INITIAL_SCORES+=("$initial")
-  FINAL_SCORES+=("$final")
-  TOTAL_INITIAL=$((TOTAL_INITIAL + initial))
-  TOTAL_FINAL=$((TOTAL_FINAL + final))
-  STORY_COUNT=$((STORY_COUNT + 1))
+  DIM_NAMES+=("$name")
+  DIM_LEVELS+=("$level")
+  DIM_GASLIGHTS+=("$gaslight")
+  DIM_DETAILS+=("$detail")
+  DIM_REMEDIES+=("$remedy")
+  DIM_COUNT=$((DIM_COUNT + 1))
 
-  printf "  %-40s %s→%s  ${color}G:%d${NC}\n" "$name" "$il" "$fl" "$gaslight"
+  printf "  %-22s ${BOLD}%s${NC} (%d/7)  ${color}G:%d${NC}\n" "$name" "$ll" "$level" "$gaslight"
   if [ -n "$detail" ]; then
     echo -e "    ${DIM}$detail${NC}"
   fi
   if [ -n "$remedy" ] && [ "$gaslight" -ge 3 ]; then
     echo -e "    ${CYAN}FIX: $remedy${NC}"
   fi
+}
 
-  # Write to report
-  echo "| $name | $il ($initial) | $fl ($final) | $gaslight | $detail | $remedy |" >> "$REPORT_FILE"
+# Story scores (same as before)
+declare -a STORY_NAMES=()
+declare -a STORY_LEVELS=()
+declare -a STORY_GASLIGHTS=()
+declare -a STORY_DETAILS=()
+declare -a STORY_REMEDIES=()
+STORY_COUNT=0
+
+record_story() {
+  local name="$1" level="$2" gaslight="$3" detail="$4" remedy="${5:-}"
+  local color ll
+  color=$(gaslight_color "$gaslight")
+  ll=$(level_label "$level")
+
+  STORY_NAMES+=("$name")
+  STORY_LEVELS+=("$level")
+  STORY_GASLIGHTS+=("$gaslight")
+  STORY_DETAILS+=("$detail")
+  STORY_REMEDIES+=("$remedy")
+  STORY_COUNT=$((STORY_COUNT + 1))
+
+  printf "  %-40s ${BOLD}%s${NC} (%d/7)  ${color}G:%d${NC}\n" "$name" "$ll" "$level" "$gaslight"
+  if [ -n "$detail" ]; then
+    echo -e "    ${DIM}$detail${NC}"
+  fi
+  if [ -n "$remedy" ] && [ "$gaslight" -ge 3 ]; then
+    echo -e "    ${CYAN}FIX: $remedy${NC}"
+  fi
 }
 
 # ═══════════════════════════════════════════════════
-# REPORT HEADER
+# HEADER
 # ═══════════════════════════════════════════════════
 
-cat > "$REPORT_FILE" << 'HEADER'
-# ATLAS Audit Report
-
-| Story | Initial | Final | Gaslight | Detail | Remedy |
-|---|---|---|---|---|---|
-HEADER
-
 echo ""
-echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║     ATLAS v2 — User Story E2E Audit                 ║${NC}"
-echo -e "${BOLD}║     Not siloed. Full flow: UI → API → DB → Response ║${NC}"
-echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${NC}"
+echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║  GLASS v3 — 10-Dimension + User Story Audit                ║${NC}"
+echo -e "${BOLD}║  Gaslight-Less Accountability for Software Shipping         ║${NC}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "  Timestamp: $(timestamp)"
 echo "  Frontend:  ${FRONTEND_PATH:-not provided}"
@@ -111,518 +132,870 @@ echo "  Live URL:  ${LIVE_URL:-not provided}"
 echo ""
 
 # ═══════════════════════════════════════════════════
-# USER STORY 1: "Dean opens the dashboard and sees his horses"
-# Full flow: Frontend loads → shows horse list → data source?
+# PART 1: 10-DIMENSION SCORES
 # ═══════════════════════════════════════════════════
 
-echo -e "${BOLD}── Story 1: Dean opens dashboard, sees his horses ──${NC}"
+echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║  PART 1: DIMENSION SCORES                                  ║${NC}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
 
-fe_data_source="unknown"
+# ── DIM 1: BACKEND ──
+echo -e "${MAGENTA}── 1. Backend ──${NC}"
+be_level=0
+be_gaslight=0
+be_detail=""
+be_remedy=""
+
+if [ -n "$BACKEND_PATH" ]; then
+  # Count routers
+  router_count=$(grep -c "include_router" "$BACKEND_PATH/main.py" 2>/dev/null || echo 0)
+  router_count=$(echo "$router_count" | tr -d '[:space:]')
+
+  # Count tests
+  test_files=$(find "$BACKEND_PATH/tests/" -name "*.py" -exec grep -l "def test_" {} \; 2>/dev/null | wc -l)
+  test_files=$(echo "$test_files" | tr -d '[:space:]')
+  test_funcs=$(grep -r "def test_" "$BACKEND_PATH/tests/" --include="*.py" 2>/dev/null | wc -l)
+  test_funcs=$(echo "$test_funcs" | tr -d '[:space:]')
+
+  be_detail="${router_count} routers, ${test_files} test files, ${test_funcs} test functions"
+
+  if [ "$test_funcs" -gt 100 ]; then
+    be_level=4
+    be_detail="$be_detail — solid test coverage"
+  elif [ "$test_funcs" -gt 0 ]; then
+    be_level=4
+  else
+    be_level=3
+    be_gaslight=2
+  fi
+
+  # Check for health endpoint response
+  if [ -n "$LIVE_URL" ]; then
+    health=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/health" 2>/dev/null || echo "000")
+    if [ "$health" = "200" ]; then
+      be_level=5
+      be_detail="$be_detail | health: 200 OK"
+    fi
+  fi
+fi
+record_dimension "Backend" "$be_level" "$be_gaslight" "$be_detail" "$be_remedy"
+echo ""
+
+# ── DIM 2: FRONTEND ──
+echo -e "${MAGENTA}── 2. Frontend ──${NC}"
+fe_level=0
 fe_gaslight=0
-fe_initial=0
-fe_final=0
 fe_detail=""
 fe_remedy=""
 
 if [ -n "$FRONTEND_PATH" ]; then
-  # Check: where does the horse list come from?
-  api_hook=$(grep -rn "useActiveHorsesApi\|fetchHorses\|/api/v1/horses" \
-    "$FRONTEND_PATH/src/" --include="*.tsx" --include="*.ts" 2>/dev/null | \
-    grep -v node_modules | grep -v ".test." | head -1)
+  # Count components
+  component_count=$(find "$FRONTEND_PATH/src/components/" -name "*.tsx" 2>/dev/null | wc -l)
+  component_count=$(echo "$component_count" | tr -d '[:space:]')
 
-  mock_import=$(grep -rn "from.*data/mulawa-horses\|from.*data/skyroo-horses" \
-    "$FRONTEND_PATH/src/components/" "$FRONTEND_PATH/src/pages/" --include="*.tsx" --include="*.ts" 2>/dev/null | \
-    grep -v node_modules | grep -v ".test." | wc -l)
-  mock_import=$(echo "$mock_import" | tr -d '[:space:]')
+  # Count mock data imports (actual data, not just types)
+  mock_data=$(grep -rn "from.*data/mulawa-horses\|from.*data/skyroo-horses" \
+    "$FRONTEND_PATH/src/components/" --include="*.tsx" --include="*.ts" 2>/dev/null | \
+    grep -v "import type" | grep -v node_modules | wc -l)
+  mock_data=$(echo "$mock_data" | tr -d '[:space:]')
 
-  if [ -n "$api_hook" ]; then
-    # Check if the hook actually calls the API or falls back to mock
-    hook_file=$(echo "$api_hook" | cut -d: -f1)
-    has_fallback=$(grep -c "fallback\|mock\|demo\|hardcoded" "$hook_file" 2>/dev/null || echo 0)
-    has_fallback=$(echo "$has_fallback" | tr -d '[:space:]')
+  mock_types=$(grep -rn "from.*data/mulawa-horses\|from.*data/skyroo-horses" \
+    "$FRONTEND_PATH/src/components/" --include="*.tsx" --include="*.ts" 2>/dev/null | \
+    grep "import type" | grep -v node_modules | wc -l)
+  mock_types=$(echo "$mock_types" | tr -d '[:space:]')
 
-    if [ "$has_fallback" -gt 0 ]; then
-      fe_data_source="API with mock fallback"
-      fe_initial=3
-      fe_gaslight=4
-      fe_detail="API hook exists but falls back to hardcoded data. $mock_import components import mock data directly."
-      fe_remedy="Set VITE_API_URL to backend. Add 'Demo data' banner when using fallback."
-    else
-      fe_data_source="API"
-      fe_initial=4
-      fe_gaslight=1
-      fe_detail="Fetches from real API"
-    fi
-  elif [ "$mock_import" -gt 0 ]; then
-    fe_data_source="hardcoded mock"
-    fe_initial=2
-    fe_gaslight=6
-    fe_detail="$mock_import components use hardcoded mock data as primary source"
-    fe_remedy="Connect to backend API. Add demo banner."
-  fi
+  # Count API service calls
+  api_calls=$(grep -c "apiFetch\|useQuery\|useMutation" "$FRONTEND_PATH/src/services/equestrai-api.ts" 2>/dev/null || echo 0)
+  api_calls=$(echo "$api_calls" | tr -d '[:space:]')
 
-  # Check: does backend have the endpoint?
-  if [ -n "$BACKEND_PATH" ]; then
-    has_horses_router=$(grep -c "horses" "$BACKEND_PATH/main.py" 2>/dev/null || echo 0)
-    has_horses_router=$(echo "$has_horses_router" | tr -d '[:space:]')
-    if [ "$has_horses_router" -gt 0 ]; then
-      fe_detail="$fe_detail | Backend router registered."
-    fi
-  fi
+  fe_detail="${component_count} components, ${mock_data} mock-data imports, ${mock_types} type-only imports, ${api_calls} API calls wired"
 
-  # Check: does live endpoint respond?
-  if [ -n "$LIVE_URL" ]; then
-    status=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/api/v1/horses" 2>/dev/null || echo "000")
-    if [ "$status" = "401" ]; then
-      fe_detail="$fe_detail | Live endpoint: 401 (exists, needs auth)"
-      fe_final=5
-    elif [ "$status" = "200" ]; then
-      fe_detail="$fe_detail | Live endpoint: 200 OK"
-      fe_final=6
-    else
-      fe_detail="$fe_detail | Live endpoint: $status"
-      fe_final=$fe_initial
-    fi
+  if [ "$mock_data" -gt 5 ]; then
+    fe_level=2
+    fe_gaslight=5
+    fe_detail="$fe_detail — MOST components use hardcoded mock data"
+    fe_remedy="Connect components to API service layer. Add demo banner when using mock data."
+  elif [ "$mock_data" -gt 0 ]; then
+    fe_level=3
+    fe_gaslight=3
+    fe_detail="$fe_detail — some mock data remains"
+    fe_remedy="Migrate remaining mock data to API calls."
   else
-    fe_final=$fe_initial
+    fe_level=4
+    fe_gaslight=0
+  fi
+
+  # Check for demo banner
+  demo_banner=$(grep -rn "demo.*banner\|mock.*indicator\|Demo data\|demo.*mode" \
+    "$FRONTEND_PATH/src/" --include="*.tsx" --include="*.ts" 2>/dev/null | wc -l)
+  demo_banner=$(echo "$demo_banner" | tr -d '[:space:]')
+  if [ "$demo_banner" -eq 0 ] && [ "$mock_data" -gt 0 ]; then
+    fe_detail="$fe_detail | NO demo banner"
+    fe_gaslight=$((fe_gaslight + 1))
   fi
 fi
-
-record_story "Dean sees his horses" "$fe_initial" "$fe_final" "$fe_gaslight" "$fe_detail" "$fe_remedy"
+record_dimension "Frontend" "$fe_level" "$fe_gaslight" "$fe_detail" "$fe_remedy"
 echo ""
 
-# ═══════════════════════════════════════════════════
-# USER STORY 2: "Dean asks Hope about a horse"
-# Full flow: Chat input → Hope API → agent routing → DB query → response
-# ═══════════════════════════════════════════════════
+# ── DIM 3: SECURITY ──
+echo -e "${MAGENTA}── 3. Security ──${NC}"
+sec_level=0
+sec_gaslight=0
+sec_detail=""
+sec_remedy=""
 
-echo -e "${BOLD}── Story 2: Dean asks Hope about a horse ──${NC}"
+if [ -n "$BACKEND_PATH" ]; then
+  # Check for auth middleware
+  auth_refs=$(grep -rn "get_current_user\|verify_token\|auth.*dependency\|Depends.*auth" \
+    "$BACKEND_PATH/api/routers/" --include="*.py" 2>/dev/null | wc -l)
+  auth_refs=$(echo "$auth_refs" | tr -d '[:space:]')
 
-chat_initial=0
-chat_final=0
-chat_gaslight=0
-chat_detail=""
-chat_remedy=""
+  # Check for RLS mentions
+  rls_refs=$(grep -rn "RLS\|row.*level.*security\|enable_rls" \
+    "$BACKEND_PATH/" --include="*.py" --include="*.sql" 2>/dev/null | wc -l)
+  rls_refs=$(echo "$rls_refs" | tr -d '[:space:]')
+
+  # Check for CORS
+  cors=$(grep -c "CORSMiddleware\|add_middleware" "$BACKEND_PATH/main.py" 2>/dev/null || echo 0)
+  cors=$(echo "$cors" | tr -d '[:space:]')
+
+  # Check for rate limiting
+  rate_limit=$(grep -rn "rate.*limit\|throttle\|RateLimiter" \
+    "$BACKEND_PATH/" --include="*.py" 2>/dev/null | wc -l)
+  rate_limit=$(echo "$rate_limit" | tr -d '[:space:]')
+
+  sec_detail="auth refs: ${auth_refs}, RLS refs: ${rls_refs}, CORS: ${cors}, rate limiting: ${rate_limit}"
+
+  if [ "$auth_refs" -gt 10 ] && [ "$rls_refs" -gt 0 ]; then
+    sec_level=4
+  elif [ "$auth_refs" -gt 0 ]; then
+    sec_level=3
+    sec_gaslight=2
+  else
+    sec_level=1
+    sec_gaslight=6
+    sec_remedy="Add auth middleware to protected endpoints"
+  fi
+
+  if [ "$rate_limit" -eq 0 ]; then
+    sec_detail="$sec_detail — NO rate limiting"
+    sec_gaslight=$((sec_gaslight + 1))
+  fi
+
+  # Check for hardcoded secrets
+  secrets=$(grep -rn "sk-\|password.*=.*\"\|secret.*=.*\"" \
+    "$BACKEND_PATH/" --include="*.py" 2>/dev/null | grep -v test | grep -v ".pyc" | wc -l)
+  secrets=$(echo "$secrets" | tr -d '[:space:]')
+  if [ "$secrets" -gt 0 ]; then
+    sec_detail="$sec_detail | WARNING: ${secrets} possible hardcoded secrets"
+    sec_gaslight=$((sec_gaslight + 3))
+    sec_remedy="${sec_remedy} Remove hardcoded secrets, use env vars."
+  fi
+fi
+record_dimension "Security" "$sec_level" "$sec_gaslight" "$sec_detail" "$sec_remedy"
+echo ""
+
+# ── DIM 4: AI ──
+echo -e "${MAGENTA}── 4. AI / Agents ──${NC}"
+ai_level=0
+ai_gaslight=0
+ai_detail=""
+ai_remedy=""
+
+if [ -n "$BACKEND_PATH" ]; then
+  # Count AI modules
+  ai_modules=$(find "$BACKEND_PATH/api/ai/" -name "*.py" 2>/dev/null | grep -v __pycache__ | wc -l)
+  ai_modules=$(echo "$ai_modules" | tr -d '[:space:]')
+
+  # Count agent files
+  agent_files=$(find "$BACKEND_PATH/api/agents/" -name "*.py" 2>/dev/null | grep -v __pycache__ | wc -l)
+  agent_files=$(echo "$agent_files" | tr -d '[:space:]')
+
+  # Check for Hope orchestrator
+  hope_exists=$([ -f "$BACKEND_PATH/api/agents/orchestrator.py" ] && echo 1 || echo 0)
+
+  # Check for agent tests
+  agent_tests=$(find "$BACKEND_PATH/tests/" -name "*agent*" -o -name "*hope*" 2>/dev/null | wc -l)
+  agent_tests=$(echo "$agent_tests" | tr -d '[:space:]')
+
+  ai_detail="${ai_modules} AI modules, ${agent_files} agent files, Hope: $([ $hope_exists -eq 1 ] && echo 'yes' || echo 'NO')"
+
+  if [ "$hope_exists" -eq 1 ] && [ "$agent_tests" -gt 0 ]; then
+    ai_level=4
+    ai_detail="$ai_detail, ${agent_tests} test files"
+  elif [ "$hope_exists" -eq 1 ]; then
+    ai_level=3
+    ai_gaslight=2
+    ai_detail="$ai_detail — orchestrator exists but limited tests"
+  elif [ "$ai_modules" -gt 0 ]; then
+    ai_level=2
+    ai_gaslight=3
+  else
+    ai_level=0
+    ai_gaslight=0
+  fi
+
+  # Check if AI actually hits real models or mocks
+  mock_ai=$(grep -rn "mock\|fake\|stub\|dummy" "$BACKEND_PATH/api/ai/" --include="*.py" 2>/dev/null | wc -l)
+  mock_ai=$(echo "$mock_ai" | tr -d '[:space:]')
+  if [ "$mock_ai" -gt 3 ]; then
+    ai_detail="$ai_detail | ${mock_ai} mock refs in AI layer"
+    ai_gaslight=$((ai_gaslight + 2))
+  fi
+fi
+record_dimension "AI / Agents" "$ai_level" "$ai_gaslight" "$ai_detail" "$ai_remedy"
+echo ""
+
+# ── DIM 5: ONTOLOGY ──
+echo -e "${MAGENTA}── 5. Ontology ──${NC}"
+ont_level=0
+ont_gaslight=0
+ont_detail=""
+ont_remedy=""
+
+if [ -n "$BACKEND_PATH" ]; then
+  ont_dir=$([ -d "$BACKEND_PATH/api/ontology/" ] && echo 1 || echo 0)
+  taxonomy=$([ -f "$BACKEND_PATH/api/models/taxonomy.py" ] && echo 1 || echo 0)
+  tax_middleware=$([ -f "$BACKEND_PATH/api/taxonomy_middleware.py" ] && echo 1 || echo 0)
+
+  ont_detail="ontology dir: $([ $ont_dir -eq 1 ] && echo 'yes' || echo 'NO'), taxonomy model: $([ $taxonomy -eq 1 ] && echo 'yes' || echo 'NO'), middleware: $([ $tax_middleware -eq 1 ] && echo 'yes' || echo 'NO')"
+
+  if [ "$ont_dir" -eq 1 ] && [ "$taxonomy" -eq 1 ]; then
+    # Count ontology files
+    ont_files=$(find "$BACKEND_PATH/api/ontology/" -name "*.py" -o -name "*.json" -o -name "*.jsonld" 2>/dev/null | wc -l)
+    ont_files=$(echo "$ont_files" | tr -d '[:space:]')
+    ont_detail="$ont_detail, ${ont_files} ontology files"
+    ont_level=3
+    if [ "$tax_middleware" -eq 1 ]; then
+      ont_level=4
+    fi
+  elif [ "$taxonomy" -eq 1 ]; then
+    ont_level=2
+    ont_gaslight=2
+  else
+    ont_level=0
+  fi
+fi
+record_dimension "Ontology" "$ont_level" "$ont_gaslight" "$ont_detail" "$ont_remedy"
+echo ""
+
+# ── DIM 6: ARCHITECTURE ──
+echo -e "${MAGENTA}── 6. Architecture ──${NC}"
+arch_level=0
+arch_gaslight=0
+arch_detail=""
+arch_remedy=""
+
+if [ -n "$BACKEND_PATH" ]; then
+  # Check layering: routers → services → models
+  routers=$(find "$BACKEND_PATH/api/routers/" -name "*.py" 2>/dev/null | grep -v __pycache__ | wc -l)
+  routers=$(echo "$routers" | tr -d '[:space:]')
+  models=$(find "$BACKEND_PATH/api/models/" -name "*.py" 2>/dev/null | grep -v __pycache__ | wc -l)
+  models=$(echo "$models" | tr -d '[:space:]')
+  services=$(find "$BACKEND_PATH/api/services/" -name "*.py" 2>/dev/null | grep -v __pycache__ | wc -l 2>/dev/null || echo 0)
+  services=$(echo "$services" | tr -d '[:space:]')
+
+  arch_detail="routers: ${routers}, models: ${models}, services: ${services}"
+
+  # Check for circular imports / god files
+  big_files=$(find "$BACKEND_PATH/api/" -name "*.py" -exec wc -l {} \; 2>/dev/null | sort -rn | head -3 | awk '{print $1 ":" $2}' | tr '\n' ', ')
+  arch_detail="$arch_detail | biggest files: $big_files"
+
+  if [ "$routers" -gt 10 ] && [ "$models" -gt 3 ]; then
+    arch_level=4
+  elif [ "$routers" -gt 0 ]; then
+    arch_level=3
+  fi
+fi
 
 if [ -n "$FRONTEND_PATH" ]; then
-  # Check: does chat call Hope API?
-  hope_call=$(grep -rn "hope/ask\|hope.*ask" "$FRONTEND_PATH/src/" --include="*.ts" --include="*.tsx" 2>/dev/null | \
-    grep -v node_modules | grep -v ".test." | head -1)
+  # Check for config-driven architecture
+  config_files=$(find "$FRONTEND_PATH/src/config/" -name "*.ts" 2>/dev/null | wc -l)
+  config_files=$(echo "$config_files" | tr -d '[:space:]')
+  arch_detail="$arch_detail | FE config files: ${config_files}"
+fi
+record_dimension "Architecture" "$arch_level" "$arch_gaslight" "$arch_detail" "$arch_remedy"
+echo ""
 
-  # Check: does chat still say old name?
-  old_name=$(grep -rn "EquestRAI Assistant" "$FRONTEND_PATH/src/components/" --include="*.tsx" 2>/dev/null | \
-    grep -v node_modules | grep -v ".test." | wc -l)
-  old_name=$(echo "$old_name" | tr -d '[:space:]')
+# ── DIM 7: UI/UX ──
+echo -e "${MAGENTA}── 7. UI/UX ──${NC}"
+ux_level=0
+ux_gaslight=0
+ux_detail=""
+ux_remedy=""
 
-  if [ -n "$hope_call" ]; then
-    chat_initial=3
-    chat_detail="Chat service calls /api/v1/hope/ask"
+if [ -n "$FRONTEND_PATH" ]; then
+  # Branding consistency
+  old_brand=$(grep -rn "EquestRAI Assistant" "$FRONTEND_PATH/src/" --include="*.tsx" --include="*.ts" 2>/dev/null | wc -l)
+  old_brand=$(echo "$old_brand" | tr -d '[:space:]')
+
+  # Accessibility
+  aria_refs=$(grep -rn "aria-\|role=" "$FRONTEND_PATH/src/components/" --include="*.tsx" 2>/dev/null | wc -l)
+  aria_refs=$(echo "$aria_refs" | tr -d '[:space:]')
+
+  # Loading states
+  loading=$(grep -rn "isLoading\|loading\|Skeleton\|Spinner" "$FRONTEND_PATH/src/components/" --include="*.tsx" 2>/dev/null | wc -l)
+  loading=$(echo "$loading" | tr -d '[:space:]')
+
+  # Error states
+  error_ui=$(grep -rn "isError\|error.*message\|ErrorBoundary\|catch" "$FRONTEND_PATH/src/components/" --include="*.tsx" 2>/dev/null | wc -l)
+  error_ui=$(echo "$error_ui" | tr -d '[:space:]')
+
+  ux_detail="old branding: ${old_brand} refs, aria: ${aria_refs}, loading states: ${loading}, error states: ${error_ui}"
+
+  if [ "$old_brand" -gt 0 ]; then
+    ux_gaslight=$((ux_gaslight + 4))
+    ux_remedy="Replace 'EquestRAI Assistant' with 'Hope' in ${old_brand} locations"
+  fi
+
+  if [ "$aria_refs" -gt 20 ] && [ "$loading" -gt 10 ]; then
+    ux_level=3
+  elif [ "$loading" -gt 5 ]; then
+    ux_level=2
   else
-    chat_initial=2
-    chat_gaslight=5
-    chat_detail="Chat does NOT call Hope API"
-    chat_remedy="Wire equestrai-chat.ts to POST /api/v1/hope/ask"
+    ux_level=1
+    ux_gaslight=$((ux_gaslight + 2))
   fi
 
-  if [ "$old_name" -gt 0 ]; then
-    chat_gaslight=$((chat_gaslight + 3))
-    chat_detail="$chat_detail | $old_name files still say 'EquestRAI Assistant'"
-    chat_remedy="${chat_remedy} Fix branding in chat component."
+  if [ "$old_brand" -gt 0 ]; then
+    ux_level=$((ux_level > 2 ? 2 : ux_level))
   fi
 fi
+record_dimension "UI/UX" "$ux_level" "$ux_gaslight" "$ux_detail" "$ux_remedy"
+echo ""
 
-# Check backend
+# ── DIM 8: DEVOPS ──
+echo -e "${MAGENTA}── 8. DevOps ──${NC}"
+ops_level=0
+ops_gaslight=0
+ops_detail=""
+ops_remedy=""
+
 if [ -n "$BACKEND_PATH" ]; then
-  hope_router=$(grep -c "hope" "$BACKEND_PATH/main.py" 2>/dev/null || echo 0)
-  hope_router=$(echo "$hope_router" | tr -d '[:space:]')
-  hope_tests=$(find "$BACKEND_PATH/tests/" -name "*hope*" 2>/dev/null | wc -l)
-  hope_tests=$(echo "$hope_tests" | tr -d '[:space:]')
+  # Check for deployment config
+  has_vercel=$([ -f "$BACKEND_PATH/vercel.json" ] && echo 1 || echo 0)
+  has_docker=$([ -f "$BACKEND_PATH/Dockerfile" ] && echo 1 || echo 0)
+  has_ci=$(find "$BACKEND_PATH/.github/" -name "*.yml" 2>/dev/null | wc -l)
+  has_ci=$(echo "$has_ci" | tr -d '[:space:]')
+  has_requirements=$([ -f "$BACKEND_PATH/requirements.txt" ] && echo 1 || echo 0)
 
-  if [ "$hope_router" -gt 0 ]; then
-    chat_detail="$chat_detail | Backend: hope router registered"
+  ops_detail="vercel: $([ $has_vercel -eq 1 ] && echo 'yes' || echo 'NO'), docker: $([ $has_docker -eq 1 ] && echo 'yes' || echo 'NO'), CI: ${has_ci} workflows, deps: $([ $has_requirements -eq 1 ] && echo 'yes' || echo 'NO')"
+
+  if [ "$has_vercel" -eq 1 ] || [ "$has_docker" -eq 1 ]; then
+    ops_level=4
+    if [ -n "$LIVE_URL" ]; then
+      deploy_check=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/health" 2>/dev/null || echo "000")
+      if [ "$deploy_check" = "200" ]; then
+        ops_level=5
+        ops_detail="$ops_detail | deploy health: 200"
+      fi
+    fi
+  else
+    ops_level=2
+    ops_gaslight=3
+    ops_remedy="Add deployment config"
   fi
-  if [ "$hope_tests" -gt 0 ]; then
-    chat_detail="$chat_detail | Tests: exist"
-    chat_initial=$((chat_initial > 4 ? chat_initial : 4))
+
+  if [ "$has_ci" -eq 0 ]; then
+    ops_detail="$ops_detail — NO CI pipeline"
+    ops_gaslight=$((ops_gaslight + 2))
+    ops_remedy="${ops_remedy} Add GitHub Actions CI."
+  fi
+fi
+record_dimension "DevOps" "$ops_level" "$ops_gaslight" "$ops_detail" "$ops_remedy"
+echo ""
+
+# ── DIM 9: DATA ──
+echo -e "${MAGENTA}── 9. Data ──${NC}"
+data_level=0
+data_gaslight=0
+data_detail=""
+data_remedy=""
+
+if [ -n "$BACKEND_PATH" ]; then
+  # Migrations
+  migration_count=$(find "$BACKEND_PATH/" -name "*.sql" -path "*/migrations/*" 2>/dev/null | wc -l)
+  migration_count=$(echo "$migration_count" | tr -d '[:space:]')
+
+  # Supabase client
+  supabase_client=$(grep -rn "supabase\|create_client" "$BACKEND_PATH/api/" --include="*.py" 2>/dev/null | wc -l)
+  supabase_client=$(echo "$supabase_client" | tr -d '[:space:]')
+
+  # N+1 patterns
+  n1_loops=$(grep -rn "for .* in .*:" "$BACKEND_PATH/api/routers/" --include="*.py" 2>/dev/null | \
+    grep -v "for.*in.*\[" | grep -v "for.*in.*range" | grep -v "for.*in.*items" | wc -l)
+  n1_loops=$(echo "$n1_loops" | tr -d '[:space:]')
+
+  data_detail="migrations: ${migration_count}, supabase refs: ${supabase_client}, potential N+1 loops: ${n1_loops}"
+
+  if [ "$supabase_client" -gt 5 ]; then
+    data_level=4
+  elif [ "$supabase_client" -gt 0 ]; then
+    data_level=3
+  else
+    data_level=1
+    data_gaslight=4
+  fi
+
+  if [ "$n1_loops" -gt 10 ]; then
+    data_gaslight=$((data_gaslight + 3))
+    data_remedy="Batch queries. ${n1_loops} potential N+1 loops in routers."
   fi
 fi
 
-# Check live
+if [ -n "$FRONTEND_PATH" ]; then
+  # How much data lives in localStorage vs API?
+  ls_count=$(grep -rn "localStorage" "$FRONTEND_PATH/src/" --include="*.tsx" --include="*.ts" 2>/dev/null | wc -l)
+  ls_count=$(echo "$ls_count" | tr -d '[:space:]')
+  data_detail="$data_detail | FE localStorage refs: ${ls_count}"
+  if [ "$ls_count" -gt 15 ]; then
+    data_gaslight=$((data_gaslight + 2))
+    data_detail="$data_detail — heavy localStorage usage"
+  fi
+fi
+record_dimension "Data" "$data_level" "$data_gaslight" "$data_detail" "$data_remedy"
+echo ""
+
+# ── DIM 10: E2E ──
+echo -e "${MAGENTA}── 10. End-to-End ──${NC}"
+e2e_level=0
+e2e_gaslight=0
+e2e_detail=""
+e2e_remedy=""
+
+if [ -n "$FRONTEND_PATH" ]; then
+  # Check for e2e tests
+  e2e_tests=$(find "$FRONTEND_PATH/" -name "*.test.ts" -o -name "*.spec.ts" -o -name "*.e2e.ts" 2>/dev/null | wc -l)
+  e2e_tests=$(echo "$e2e_tests" | tr -d '[:space:]')
+
+  # Check for Playwright / Cypress
+  has_playwright=$([ -f "$FRONTEND_PATH/playwright.config.ts" ] && echo 1 || echo 0)
+  has_cypress=$([ -d "$FRONTEND_PATH/cypress" ] && echo 1 || echo 0)
+
+  e2e_detail="test files: ${e2e_tests}, playwright: $([ $has_playwright -eq 1 ] && echo 'yes' || echo 'NO'), cypress: $([ $has_cypress -eq 1 ] && echo 'yes' || echo 'NO')"
+fi
+
+# Check if FE→BE integration works
 if [ -n "$LIVE_URL" ]; then
+  # Try hitting core endpoints
+  horses_status=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/api/v1/horses/?farm_id=test" 2>/dev/null || echo "000")
   hope_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$LIVE_URL/api/v1/hope/ask" \
     -H "Content-Type: application/json" \
     -d '{"message":"test","farm_id":"00000000-0000-0000-0000-000000000000"}' 2>/dev/null || echo "000")
-  if [ "$hope_status" = "401" ]; then
-    chat_detail="$chat_detail | Live: 401 (exists)"
-    chat_final=5
-  elif [ "$hope_status" = "200" ] || [ "$hope_status" = "201" ]; then
-    chat_final=6
+
+  e2e_detail="$e2e_detail | live horses: ${horses_status}, live hope: ${hope_status}"
+
+  if [ "$horses_status" = "401" ] && [ "$hope_status" = "401" ]; then
+    e2e_level=5
+    e2e_detail="$e2e_detail — endpoints exist, auth required"
+  elif [ "$horses_status" = "200" ] || [ "$hope_status" = "200" ]; then
+    e2e_level=6
   else
-    chat_detail="$chat_detail | Live: $hope_status"
-    chat_final=$chat_initial
+    e2e_level=2
+    e2e_gaslight=4
+    e2e_remedy="Live endpoints not responding correctly"
   fi
 else
-  chat_final=$chat_initial
+  e2e_level=1
+  e2e_gaslight=3
+  e2e_detail="$e2e_detail — no live URL provided"
+  e2e_remedy="Provide --url to test against deployed backend"
 fi
-
-record_story "Dean asks Hope about a horse" "$chat_initial" "$chat_final" "$chat_gaslight" "$chat_detail" "$chat_remedy"
+record_dimension "End-to-End" "$e2e_level" "$e2e_gaslight" "$e2e_detail" "$e2e_remedy"
 echo ""
 
 # ═══════════════════════════════════════════════════
-# USER STORY 3: "Dean takes a photo and it saves"
-# Full flow: Camera → capture → upload to Supabase → URL stored
+# PART 2: USER STORIES
 # ═══════════════════════════════════════════════════
 
-echo -e "${BOLD}── Story 3: Dean takes a photo and it persists ──${NC}"
+echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║  PART 2: USER STORIES                                      ║${NC}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
 
-photo_initial=0
-photo_final=0
-photo_gaslight=0
-photo_detail=""
-photo_remedy=""
+# ── STORY 1: Dean opens dashboard, sees horses ──
+echo -e "${BOLD}── Story 1: Dean opens dashboard, sees his horses ──${NC}"
+s1_level=0; s1_gaslight=0; s1_detail=""; s1_remedy=""
 
 if [ -n "$FRONTEND_PATH" ]; then
-  # Check: does PhotoCapture upload to Supabase?
-  uploads_to_supabase=$(grep -c "uploadObservationPhoto\|supabase.*storage\|from.*photo-storage" \
-    "$FRONTEND_PATH/src/components/PhotoCapture.tsx" 2>/dev/null || echo 0)
-  uploads_to_supabase=$(echo "$uploads_to_supabase" | tr -d '[:space:]')
+  # Does the dashboard pull from API or mock?
+  dash_api=$(grep -c "useActiveHorsesApi\|fetchHorses\|equestRaiApi.*horses" \
+    "$FRONTEND_PATH/src/components/farm-dashboard/"*.tsx "$FRONTEND_PATH/src/pages/"*.tsx 2>/dev/null || echo 0)
+  dash_api=$(echo "$dash_api" | tr -d '[:space:]')
 
-  saves_local_only=$(grep -c "setGallery\|useState.*gallery\|local.*state\|mock.*gallery" \
-    "$FRONTEND_PATH/src/components/PhotoCapture.tsx" 2>/dev/null || echo 0)
-  saves_local_only=$(echo "$saves_local_only" | tr -d '[:space:]')
+  dash_mock=$(grep -rn "from.*data/mulawa-horses\|from.*data/skyroo-horses" \
+    "$FRONTEND_PATH/src/components/farm-dashboard/" --include="*.tsx" 2>/dev/null | grep -v "import type" | wc -l)
+  dash_mock=$(echo "$dash_mock" | tr -d '[:space:]')
 
-  if [ "$uploads_to_supabase" -gt 0 ]; then
-    photo_initial=3
-    photo_detail="PhotoCapture imports uploadObservationPhoto (Supabase storage)"
-    photo_gaslight=2
+  if [ "$dash_mock" -gt 0 ]; then
+    s1_level=2
+    s1_gaslight=5
+    s1_detail="Dashboard uses ${dash_mock} mock-data imports (not type-only)"
+    s1_remedy="Wire dashboard to API service layer"
+  elif [ "$dash_api" -gt 0 ]; then
+    s1_level=3
+    s1_detail="Dashboard calls API"
   else
-    photo_initial=2
-    photo_detail="PhotoCapture saves to local React state only — ephemeral"
-    photo_gaslight=7
-    photo_remedy="Import and call uploadObservationPhoto from photo-storage.ts"
-  fi
-
-  # Check if horse-media bucket verification exists
-  bucket_ref=$(grep -c "horse-media" "$FRONTEND_PATH/src/services/photo-storage.ts" 2>/dev/null || echo 0)
-  bucket_ref=$(echo "$bucket_ref" | tr -d '[:space:]')
-  if [ "$bucket_ref" -gt 0 ]; then
-    photo_detail="$photo_detail | Targets 'horse-media' bucket"
-  fi
-fi
-
-photo_final=$photo_initial
-record_story "Dean takes a photo, it persists" "$photo_initial" "$photo_final" "$photo_gaslight" "$photo_detail" "$photo_remedy"
-echo ""
-
-# ═══════════════════════════════════════════════════
-# USER STORY 4: "Dean logs a groom observation"
-# Full flow: Form → submit → backend API → database
-# ═══════════════════════════════════════════════════
-
-echo -e "${BOLD}── Story 4: Dean logs a groom observation ──${NC}"
-
-obs_initial=0
-obs_final=0
-obs_gaslight=0
-obs_detail=""
-obs_remedy=""
-
-if [ -n "$FRONTEND_PATH" ]; then
-  # Check: does the form submit to API or localStorage?
-  form_file="$FRONTEND_PATH/src/components/GroomObservationForm.tsx"
-  if [ -f "$form_file" ]; then
-    api_submit=$(grep -c "fetch\|api\|useCreate\|mutation\|POST" "$form_file" 2>/dev/null || echo 0)
-    api_submit=$(echo "$api_submit" | tr -d '[:space:]')
-    local_save=$(grep -c "localStorage\|sessionStorage" "$form_file" 2>/dev/null || echo 0)
-    local_save=$(echo "$local_save" | tr -d '[:space:]')
-
-    if [ "$api_submit" -gt 0 ] && [ "$local_save" -eq 0 ]; then
-      obs_initial=3
-      obs_detail="Form submits via API"
-      obs_gaslight=1
-    elif [ "$api_submit" -gt 0 ] && [ "$local_save" -gt 0 ]; then
-      obs_initial=2
-      obs_detail="Has API path but also localStorage fallback"
-      obs_gaslight=4
-      obs_remedy="Ensure API is primary, localStorage is offline cache only"
-    else
-      obs_initial=2
-      obs_detail="Saves to localStorage only"
-      obs_gaslight=6
-      obs_remedy="Wire to POST /api/v1/events"
-    fi
-  else
-    obs_initial=0
-    obs_detail="GroomObservationForm.tsx not found"
-    obs_gaslight=0
-  fi
-fi
-
-obs_final=$obs_initial
-record_story "Dean logs groom observation" "$obs_initial" "$obs_final" "$obs_gaslight" "$obs_detail" "$obs_remedy"
-echo ""
-
-# ═══════════════════════════════════════════════════
-# USER STORY 5: "Dean gets a morning briefing"
-# Full flow: Cron/manual → backend queries → structured summary
-# ═══════════════════════════════════════════════════
-
-echo -e "${BOLD}── Story 5: Dean gets morning briefing ──${NC}"
-
-brief_initial=0
-brief_final=0
-brief_gaslight=0
-brief_detail=""
-brief_remedy=""
-
-if [ -n "$BACKEND_PATH" ]; then
-  if [ -f "$BACKEND_PATH/api/routers/briefing.py" ]; then
-    brief_initial=3
-    brief_detail="Endpoint exists"
-
-    # Check for N+1
-    n1_count=$(grep -c "for h in horses\|for v in vax" "$BACKEND_PATH/api/routers/briefing.py" 2>/dev/null || echo 0)
-    n1_count=$(echo "$n1_count" | tr -d '[:space:]')
-    if [ "$n1_count" -gt 0 ]; then
-      brief_detail="$brief_detail | WARNING: N+1 query pattern ($n1_count loops)"
-      brief_gaslight=3
-      brief_remedy="Batch query: JOIN horses + vaccinations in single query"
-    fi
-
-    # Check for tests
-    brief_test=$(find "$BACKEND_PATH/tests/" -name "*briefing*" 2>/dev/null | wc -l)
-    brief_test=$(echo "$brief_test" | tr -d '[:space:]')
-    if [ "$brief_test" -eq 0 ]; then
-      brief_detail="$brief_detail | NO TESTS"
-      brief_gaslight=$((brief_gaslight + 2))
-      brief_remedy="${brief_remedy} Write tests."
-    else
-      brief_initial=4
-    fi
+    s1_level=1
+    s1_gaslight=3
+    s1_detail="Can't determine data source"
   fi
 fi
 
 if [ -n "$LIVE_URL" ]; then
-  bs=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/api/v1/briefing/00000000-0000-0000-0000-000000000000" 2>/dev/null || echo "000")
-  if [ "$bs" = "401" ]; then
-    brief_final=5
-    brief_detail="$brief_detail | Live: 401 (exists)"
-  else
-    brief_final=$brief_initial
+  hs=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/api/v1/horses/?farm_id=test" 2>/dev/null || echo "000")
+  if [ "$hs" = "401" ]; then
+    s1_detail="$s1_detail | backend: 401 (exists)"
+    [ "$s1_level" -lt 5 ] && [ "$s1_gaslight" -lt 3 ] && s1_level=5
   fi
-else
-  brief_final=$brief_initial
 fi
 
-record_story "Dean gets morning briefing" "$brief_initial" "$brief_final" "$brief_gaslight" "$brief_detail" "$brief_remedy"
+record_story "Dean sees his horses" "$s1_level" "$s1_gaslight" "$s1_detail" "$s1_remedy"
 echo ""
 
-# ═══════════════════════════════════════════════════
-# USER STORY 6: "Dean clicks a horse → sees full profile"
-# Full flow: Click horse → route /horse/:id → profile page renders
-# ═══════════════════════════════════════════════════
-
-echo -e "${BOLD}── Story 6: Dean clicks horse → full profile ──${NC}"
-
-prof_initial=0
-prof_final=0
-prof_gaslight=0
-prof_detail=""
-prof_remedy=""
+# ── STORY 2: Dean asks Hope about a horse ──
+echo -e "${BOLD}── Story 2: Dean asks Hope about a horse ──${NC}"
+s2_level=0; s2_gaslight=0; s2_detail=""; s2_remedy=""
 
 if [ -n "$FRONTEND_PATH" ]; then
-  # Check route exists
-  route_exists=$(grep -c "/horse/:horseId\|/horse/" "$FRONTEND_PATH/src/App.tsx" 2>/dev/null || echo 0)
-  route_exists=$(echo "$route_exists" | tr -d '[:space:]')
+  hope_call=$(grep -c "hope/ask" "$FRONTEND_PATH/src/services/equestrai-chat.ts" 2>/dev/null || echo 0)
+  hope_call=$(echo "$hope_call" | tr -d '[:space:]')
 
-  # Check profile page exists
-  profile_page=$(find "$FRONTEND_PATH/src/" -name "HorseProfilePage*" -o -name "HorseProfileRoute*" 2>/dev/null | wc -l)
-  profile_page=$(echo "$profile_page" | tr -d '[:space:]')
+  old_name=$(grep -c "EquestRAI Assistant" "$FRONTEND_PATH/src/components/EquestRaiChat.tsx" 2>/dev/null || echo 0)
+  old_name=$(echo "$old_name" | tr -d '[:space:]')
 
-  # Check if dashboard horse list links to profile
-  horse_click=$(grep -c "onHorseClick\|navigate.*horse\|/horse/" \
-    "$FRONTEND_PATH/src/components/FarmDashboard.tsx" "$FRONTEND_PATH/src/components/farm-dashboard/"*.tsx 2>/dev/null || echo 0)
-  horse_click=$(echo "$horse_click" | tr -d '[:space:]')
-
-  if [ "$route_exists" -gt 0 ] && [ "$profile_page" -gt 0 ]; then
-    prof_initial=3
-    prof_detail="Route + page component exist"
-    if [ "$horse_click" -gt 0 ]; then
-      prof_detail="$prof_detail | Dashboard links to profile"
-    else
-      prof_detail="$prof_detail | Dashboard does NOT link to profile"
-      prof_gaslight=3
-      prof_remedy="Add onClick handler to horse list items → navigate(/horse/id)"
-    fi
-  elif [ "$profile_page" -gt 0 ]; then
-    prof_initial=2
-    prof_detail="Profile page exists but no route"
-    prof_gaslight=4
-    prof_remedy="Add Route in App.tsx"
+  if [ "$hope_call" -gt 0 ]; then
+    s2_level=3
+    s2_detail="Chat calls /api/v1/hope/ask"
   else
-    prof_initial=0
-    prof_detail="No horse profile page"
-    prof_gaslight=7
-    prof_remedy="Create HorseProfilePage component"
+    s2_level=2
+    s2_gaslight=5
+    s2_detail="Chat does NOT call Hope API"
+    s2_remedy="Wire chat to POST /api/v1/hope/ask"
+  fi
+
+  if [ "$old_name" -gt 0 ]; then
+    s2_gaslight=$((s2_gaslight + 3))
+    s2_detail="$s2_detail | ${old_name} refs still say 'EquestRAI Assistant'"
+    s2_remedy="${s2_remedy} Rebrand to Hope."
   fi
 fi
 
-prof_final=$prof_initial
-record_story "Dean clicks horse → profile" "$prof_initial" "$prof_final" "$prof_gaslight" "$prof_detail" "$prof_remedy"
+if [ -n "$LIVE_URL" ]; then
+  hs2=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$LIVE_URL/api/v1/hope/ask" \
+    -H "Content-Type: application/json" \
+    -d '{"message":"test","farm_id":"00000000-0000-0000-0000-000000000000"}' 2>/dev/null || echo "000")
+  if [ "$hs2" = "401" ]; then
+    s2_detail="$s2_detail | backend: 401 (exists)"
+  fi
+fi
+record_story "Dean asks Hope" "$s2_level" "$s2_gaslight" "$s2_detail" "$s2_remedy"
 echo ""
 
-# ═══════════════════════════════════════════════════
-# USER STORY 7: "WhatsApp message → Hope processes it"
-# Full flow: ZeroClaw → ingest API → extraction → event
-# ═══════════════════════════════════════════════════
+# ── STORY 3: Dean takes a photo ──
+echo -e "${BOLD}── Story 3: Dean takes a photo ──${NC}"
+s3_level=0; s3_gaslight=0; s3_detail=""; s3_remedy=""
 
-echo -e "${BOLD}── Story 7: WhatsApp message → Hope processes ──${NC}"
+if [ -n "$FRONTEND_PATH" ]; then
+  supabase_upload=$(grep -c "uploadObservationPhoto\|supabase.*storage" \
+    "$FRONTEND_PATH/src/components/PhotoCapture.tsx" 2>/dev/null || echo 0)
+  supabase_upload=$(echo "$supabase_upload" | tr -d '[:space:]')
 
-zc_initial=0
-zc_final=0
-zc_gaslight=0
-zc_detail=""
-zc_remedy=""
+  if [ "$supabase_upload" -gt 0 ]; then
+    s3_level=3; s3_gaslight=2
+    s3_detail="PhotoCapture uploads to Supabase storage"
+  else
+    s3_level=2; s3_gaslight=6
+    s3_detail="PhotoCapture saves to local state only"
+    s3_remedy="Wire to Supabase storage upload"
+  fi
+fi
+record_story "Dean takes a photo" "$s3_level" "$s3_gaslight" "$s3_detail" "$s3_remedy"
+echo ""
+
+# ── STORY 4: Dean logs groom observation ──
+echo -e "${BOLD}── Story 4: Dean logs groom observation ──${NC}"
+s4_level=0; s4_gaslight=0; s4_detail=""; s4_remedy=""
+
+if [ -n "$FRONTEND_PATH" ]; then
+  form="$FRONTEND_PATH/src/components/GroomObservationForm.tsx"
+  if [ -f "$form" ]; then
+    api_sub=$(grep -c "fetch\|api\|mutation\|POST" "$form" 2>/dev/null || echo 0)
+    api_sub=$(echo "$api_sub" | tr -d '[:space:]')
+    local_sub=$(grep -c "localStorage" "$form" 2>/dev/null || echo 0)
+    local_sub=$(echo "$local_sub" | tr -d '[:space:]')
+
+    if [ "$api_sub" -gt 0 ] && [ "$local_sub" -eq 0 ]; then
+      s4_level=3; s4_gaslight=1
+      s4_detail="Form submits via API"
+    elif [ "$api_sub" -gt 0 ]; then
+      s4_level=2; s4_gaslight=4
+      s4_detail="API + localStorage fallback"
+      s4_remedy="Make API primary, localStorage offline-only"
+    else
+      s4_level=2; s4_gaslight=6
+      s4_detail="localStorage only"
+      s4_remedy="Wire to POST /api/v1/events"
+    fi
+  else
+    s4_detail="GroomObservationForm.tsx not found"
+  fi
+fi
+record_story "Dean logs observation" "$s4_level" "$s4_gaslight" "$s4_detail" "$s4_remedy"
+echo ""
+
+# ── STORY 5: Morning briefing ──
+echo -e "${BOLD}── Story 5: Dean gets morning briefing ──${NC}"
+s5_level=0; s5_gaslight=0; s5_detail=""; s5_remedy=""
+
+if [ -n "$BACKEND_PATH" ] && [ -f "$BACKEND_PATH/api/routers/briefing.py" ]; then
+  s5_level=3
+  s5_detail="Endpoint exists"
+
+  n1=$(grep -c "for h in\|for v in\|for r in" "$BACKEND_PATH/api/routers/briefing.py" 2>/dev/null || echo 0)
+  n1=$(echo "$n1" | tr -d '[:space:]')
+  if [ "$n1" -gt 2 ]; then
+    s5_gaslight=3
+    s5_detail="$s5_detail | N+1: ${n1} loops"
+    s5_remedy="Batch queries"
+  fi
+
+  bt=$(find "$BACKEND_PATH/tests/" -name "*briefing*" 2>/dev/null | wc -l)
+  bt=$(echo "$bt" | tr -d '[:space:]')
+  if [ "$bt" -eq 0 ]; then
+    s5_gaslight=$((s5_gaslight + 2))
+    s5_detail="$s5_detail | NO TESTS"
+    s5_remedy="${s5_remedy} Write briefing tests."
+  else
+    s5_level=4
+  fi
+
+  if [ -n "$LIVE_URL" ]; then
+    bs=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL/api/v1/briefing/00000000-0000-0000-0000-000000000000" 2>/dev/null || echo "000")
+    if [ "$bs" = "401" ]; then
+      s5_detail="$s5_detail | live: 401"
+      [ "$s5_level" -lt 5 ] && [ "$s5_gaslight" -lt 3 ] && s5_level=5
+    fi
+  fi
+fi
+record_story "Morning briefing" "$s5_level" "$s5_gaslight" "$s5_detail" "$s5_remedy"
+echo ""
+
+# ── STORY 6: Horse profile click ──
+echo -e "${BOLD}── Story 6: Dean clicks horse → profile ──${NC}"
+s6_level=0; s6_gaslight=0; s6_detail=""; s6_remedy=""
+
+if [ -n "$FRONTEND_PATH" ]; then
+  route=$(grep -c "horse.*Id\|/horse/" "$FRONTEND_PATH/src/App.tsx" 2>/dev/null || echo 0)
+  route=$(echo "$route" | tr -d '[:space:]')
+  profile=$(find "$FRONTEND_PATH/src/" -name "HorseProfile*" 2>/dev/null | wc -l)
+  profile=$(echo "$profile" | tr -d '[:space:]')
+
+  # Check if dashboard links to profile (safe: count per file separately)
+  horse_click=0
+  for f in "$FRONTEND_PATH/src/components/farm-dashboard/"*.tsx; do
+    if [ -f "$f" ]; then
+      c=$(grep -c "navigate.*horse\|/horse/\|onHorseClick" "$f" 2>/dev/null || echo 0)
+      c=$(echo "$c" | tr -d '[:space:]')
+      horse_click=$((horse_click + c))
+    fi
+  done
+
+  if [ "$route" -gt 0 ] && [ "$profile" -gt 0 ]; then
+    s6_level=3
+    s6_detail="Route + profile page exist"
+    if [ "$horse_click" -gt 0 ]; then
+      s6_detail="$s6_detail, dashboard links to profile"
+    else
+      s6_gaslight=3
+      s6_detail="$s6_detail, dashboard does NOT link"
+      s6_remedy="Add navigate(/horse/id) to horse card clicks"
+    fi
+  else
+    s6_level=1; s6_gaslight=5
+    s6_detail="Missing route or profile page"
+    s6_remedy="Create route + HorseProfilePage"
+  fi
+fi
+record_story "Horse profile click" "$s6_level" "$s6_gaslight" "$s6_detail" "$s6_remedy"
+echo ""
+
+# ── STORY 7: WhatsApp → Hope ──
+echo -e "${BOLD}── Story 7: WhatsApp → Hope ──${NC}"
+s7_level=0; s7_gaslight=0; s7_detail=""; s7_remedy=""
 
 if [ -n "$BACKEND_PATH" ]; then
-  # Ingest endpoint
-  ingest=$(grep -c "def ingest_message\|/ingest" "$BACKEND_PATH/api/routers/zeroclaw.py" 2>/dev/null || echo 0)
+  ingest=$(grep -c "def ingest\|/ingest" "$BACKEND_PATH/api/routers/zeroclaw.py" 2>/dev/null || echo 0)
   ingest=$(echo "$ingest" | tr -d '[:space:]')
-
-  # Extractor
-  extractor=$([ -f "$BACKEND_PATH/api/zeroclaw/extractor.py" ] && echo 1 || echo 0)
-
-  # Channel adapter
   adapter=$([ -f "$BACKEND_PATH/api/agents/channel/adapter.py" ] && echo 1 || echo 0)
 
-  if [ "$ingest" -gt 0 ] && [ "$extractor" -eq 1 ]; then
-    zc_initial=3
-    zc_detail="Ingest endpoint + extractor exist"
+  if [ "$ingest" -gt 0 ] && [ "$adapter" -eq 1 ]; then
+    s7_level=2
+    s7_detail="Ingest endpoint + adapter exist"
 
-    if [ "$adapter" -eq 1 ]; then
-      zc_detail="$zc_detail | Channel adapter coded"
-    fi
+    # Check if adapter actually CALLS Hope orchestrator
+    adapter_calls_hope=$(grep -c "orchestrat\|HopeOrchestrator\|dispatch" \
+      "$BACKEND_PATH/api/agents/channel/adapter.py" 2>/dev/null || echo 0)
+    adapter_calls_hope=$(echo "$adapter_calls_hope" | tr -d '[:space:]')
 
-    # But is ZeroClaw actually connected?
-    zc_connected=$(docker ps --filter name=zeroclaw 2>/dev/null | grep -c zeroclaw || echo 0)
-    if [ "$zc_connected" -gt 0 ]; then
-      zc_detail="$zc_detail | ZeroClaw Docker running"
-      zc_final=4
+    if [ "$adapter_calls_hope" -gt 0 ]; then
+      s7_level=3
+      s7_detail="$s7_detail | adapter references orchestrator"
     else
-      zc_detail="$zc_detail | ZeroClaw NOT running"
-      zc_gaslight=5
-      zc_remedy="ZeroClaw → Hope bridge not connected. Two separate systems."
-      zc_final=$zc_initial
+      s7_gaslight=5
+      s7_detail="$s7_detail | adapter does NOT call Hope — TWO SEPARATE SYSTEMS"
+      s7_remedy="Wire adapter.py → HopeOrchestrator.dispatch()"
     fi
   fi
-fi
 
-if [ -n "$LIVE_URL" ]; then
-  zcs=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$LIVE_URL/api/v1/zeroclaw/ingest" \
-    -H "Content-Type: application/json" \
-    -d '{"farm_id":"00000000-0000-0000-0000-000000000000","channel":"test","content":"test"}' 2>/dev/null || echo "000")
-  if [ "$zcs" = "401" ]; then
-    zc_detail="$zc_detail | Live ingest: 401 (exists)"
-    [ "$zc_final" -lt 5 ] && zc_final=5
+  # Check if ZeroClaw Docker is running
+  zc_docker=$(docker ps --filter name=zeroclaw 2>/dev/null | grep -c zeroclaw || echo 0)
+  if [ "$zc_docker" -gt 0 ]; then
+    s7_detail="$s7_detail | ZeroClaw Docker: running"
+  else
+    s7_detail="$s7_detail | ZeroClaw Docker: NOT running"
   fi
 fi
-
-record_story "WhatsApp → Hope processes" "$zc_initial" "$zc_final" "$zc_gaslight" "$zc_detail" "$zc_remedy"
+record_story "WhatsApp → Hope" "$s7_level" "$s7_gaslight" "$s7_detail" "$s7_remedy"
 echo ""
 
-# ═══════════════════════════════════════════════════
-# USER STORY 8: "Page loads at the top, not partway down"
-# ═══════════════════════════════════════════════════
-
+# ── STORY 8: Page loads at top ──
 echo -e "${BOLD}── Story 8: Page loads at top ──${NC}"
-
-scroll_initial=0
-scroll_final=0
-scroll_gaslight=0
+s8_level=0; s8_gaslight=0; s8_detail=""; s8_remedy=""
 
 if [ -n "$FRONTEND_PATH" ]; then
-  has_scroll=$(grep -c "ScrollToTop\|scrollTo(0" "$FRONTEND_PATH/src/App.tsx" 2>/dev/null || echo 0)
-  has_scroll=$(echo "$has_scroll" | tr -d '[:space:]')
-
-  if [ "$has_scroll" -gt 0 ]; then
-    scroll_initial=3
-    scroll_final=5
-    scroll_gaslight=0
-    record_story "Page loads at top" "$scroll_initial" "$scroll_final" "$scroll_gaslight" "ScrollToTop component in App.tsx" ""
+  scroll=$(grep -c "ScrollToTop\|scrollTo(0" "$FRONTEND_PATH/src/App.tsx" 2>/dev/null || echo 0)
+  scroll=$(echo "$scroll" | tr -d '[:space:]')
+  if [ "$scroll" -gt 0 ]; then
+    s8_level=5; s8_gaslight=0
+    s8_detail="ScrollToTop in App.tsx"
   else
-    scroll_initial=0
-    scroll_gaslight=4
-    record_story "Page loads at top" "$scroll_initial" "$scroll_initial" "$scroll_gaslight" "No ScrollToTop — page may load partway down" "Add ScrollToTop component using useLocation + window.scrollTo(0,0)"
+    s8_level=0; s8_gaslight=4
+    s8_detail="No ScrollToTop"
+    s8_remedy="Add ScrollToTop component"
   fi
 fi
+record_story "Page loads at top" "$s8_level" "$s8_gaslight" "$s8_detail" "$s8_remedy"
 echo ""
 
 # ═══════════════════════════════════════════════════
-# SUMMARY
+# FINAL SCORES
 # ═══════════════════════════════════════════════════
 
-echo -e "${BOLD}══════════════════════════════════════════════════════${NC}"
-echo -e "${BOLD}FINAL SCORES${NC}"
+echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║  FINAL SCORES                                              ║${NC}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-AVG_INITIAL=0
-AVG_FINAL=0
-if [ "$STORY_COUNT" -gt 0 ]; then
-  AVG_INITIAL=$((TOTAL_INITIAL / STORY_COUNT))
-  AVG_FINAL=$((TOTAL_FINAL / STORY_COUNT))
-fi
+# Dimension averages
+dim_total=0
+dim_gaslight_total=0
+for i in "${!DIM_LEVELS[@]}"; do
+  dim_total=$((dim_total + DIM_LEVELS[i]))
+  dim_gaslight_total=$((dim_gaslight_total + DIM_GASLIGHTS[i]))
+done
+dim_avg=$((DIM_COUNT > 0 ? dim_total / DIM_COUNT : 0))
+dim_gaslight_avg=$((DIM_COUNT > 0 ? dim_gaslight_total / DIM_COUNT : 0))
 
-echo -e "  Stories tested:      $STORY_COUNT"
-echo -e "  Initial avg ATLAS:   ${BOLD}$AVG_INITIAL$(echo "/7 ($(level_label $AVG_INITIAL))")${NC}"
-echo -e "  Final avg ATLAS:     ${BOLD}$AVG_FINAL$(echo "/7 ($(level_label $AVG_FINAL))")${NC}"
+# Story averages
+story_total=0
+story_gaslight_total=0
+for i in "${!STORY_LEVELS[@]}"; do
+  story_total=$((story_total + STORY_LEVELS[i]))
+  story_gaslight_total=$((story_gaslight_total + STORY_GASLIGHTS[i]))
+done
+story_avg=$((STORY_COUNT > 0 ? story_total / STORY_COUNT : 0))
+story_gaslight_avg=$((STORY_COUNT > 0 ? story_gaslight_total / STORY_COUNT : 0))
 
-# Calculate improvement
-if [ "$AVG_FINAL" -gt "$AVG_INITIAL" ]; then
-  echo -e "  Delta:               ${GREEN}+$((AVG_FINAL - AVG_INITIAL)) levels${NC}"
-elif [ "$AVG_FINAL" -lt "$AVG_INITIAL" ]; then
-  echo -e "  Delta:               ${RED}$((AVG_FINAL - AVG_INITIAL)) levels (REGRESSED)${NC}"
-else
-  echo -e "  Delta:               0 (no change)"
-fi
+# Overall
+overall_avg=$(( (dim_total + story_total) / (DIM_COUNT + STORY_COUNT) ))
+overall_gaslight=$(( (dim_gaslight_total + story_gaslight_total) / (DIM_COUNT + STORY_COUNT) ))
 
+echo -e "  ${BOLD}DIMENSIONS${NC} (${DIM_COUNT} scored)"
+echo -e "    Avg Level:    $(level_label $dim_avg) ($dim_avg/7)"
+echo -e "    Avg Gaslight: $(gaslight_color $dim_gaslight_avg)$dim_gaslight_avg${NC}"
 echo ""
 
-# Count issues
-issue_count=0
-for i in "${!STORIES[@]}"; do
-  init="${INITIAL_SCORES[$i]}"
-  fin="${FINAL_SCORES[$i]}"
-  if [ "$fin" -lt 5 ]; then
-    issue_count=$((issue_count + 1))
-  fi
+echo -e "  ${BOLD}USER STORIES${NC} (${STORY_COUNT} tested)"
+echo -e "    Avg Level:    $(level_label $story_avg) ($story_avg/7)"
+echo -e "    Avg Gaslight: $(gaslight_color $story_gaslight_avg)$story_gaslight_avg${NC}"
+echo ""
+
+echo -e "  ${BOLD}OVERALL${NC}"
+echo -e "    Level:    ${BOLD}$(level_label $overall_avg) ($overall_avg/7)${NC}"
+echo -e "    Gaslight: $(gaslight_color $overall_gaslight)${BOLD}$overall_gaslight${NC}"
+echo ""
+
+# Count critical issues
+critical=0
+for i in "${!DIM_GASLIGHTS[@]}"; do
+  [ "${DIM_GASLIGHTS[$i]}" -ge 4 ] && critical=$((critical + 1))
+done
+for i in "${!STORY_GASLIGHTS[@]}"; do
+  [ "${STORY_GASLIGHTS[$i]}" -ge 4 ] && critical=$((critical + 1))
 done
 
-if [ "$issue_count" -eq 0 ]; then
-  echo -e "  Verdict: ${GREEN}${BOLD}ALL STORIES VERIFIED${NC}"
-elif [ "$issue_count" -le 2 ]; then
-  echo -e "  Verdict: ${YELLOW}${BOLD}MOSTLY WORKING${NC} — $issue_count stories below DEPLOYED"
+if [ "$critical" -eq 0 ]; then
+  echo -e "  Verdict: ${GREEN}${BOLD}HONEST STATE${NC} — no critical gaslight issues"
+elif [ "$critical" -le 3 ]; then
+  echo -e "  Verdict: ${YELLOW}${BOLD}NEEDS WORK${NC} — $critical items with gaslight >= 4"
 else
-  echo -e "  Verdict: ${RED}${BOLD}NOT READY${NC} — $issue_count stories below DEPLOYED"
+  echo -e "  Verdict: ${RED}${BOLD}GASLIGHT RISK${NC} — $critical items with gaslight >= 4"
 fi
 
-echo ""
+# ═══════════════════════════════════════════════════
+# WRITE REPORT
+# ═══════════════════════════════════════════════════
 
-# Append summary to report
-cat >> "$REPORT_FILE" << EOF
+cat > "$REPORT_FILE" << REPORT_HEADER
+# GLASS v3 Audit Report
+
+**Timestamp:** $(timestamp)
+**Frontend:** ${FRONTEND_PATH:-not provided}
+**Backend:** ${BACKEND_PATH:-not provided}
+**Live URL:** ${LIVE_URL:-not provided}
+
+## Dimension Scores
+
+| Dimension | Level | Score | Gaslight | Detail | Fix |
+|---|---|---|---|---|---|
+REPORT_HEADER
+
+for i in "${!DIM_NAMES[@]}"; do
+  ll=$(level_label "${DIM_LEVELS[$i]}")
+  echo "| ${DIM_NAMES[$i]} | $ll | ${DIM_LEVELS[$i]}/7 | ${DIM_GASLIGHTS[$i]} | ${DIM_DETAILS[$i]} | ${DIM_REMEDIES[$i]} |" >> "$REPORT_FILE"
+done
+
+cat >> "$REPORT_FILE" << STORY_HEADER
+
+## User Stories
+
+| Story | Level | Score | Gaslight | Detail | Fix |
+|---|---|---|---|---|---|
+STORY_HEADER
+
+for i in "${!STORY_NAMES[@]}"; do
+  ll=$(level_label "${STORY_LEVELS[$i]}")
+  echo "| ${STORY_NAMES[$i]} | $ll | ${STORY_LEVELS[$i]}/7 | ${STORY_GASLIGHTS[$i]} | ${STORY_DETAILS[$i]} | ${STORY_REMEDIES[$i]} |" >> "$REPORT_FILE"
+done
+
+cat >> "$REPORT_FILE" << SUMMARY
 
 ## Summary
 
-- Stories: $STORY_COUNT
-- Initial: $AVG_INITIAL/7
-- Final: $AVG_FINAL/7
-- Timestamp: $(timestamp)
-EOF
+- Dimensions: $DIM_COUNT scored, avg $(level_label $dim_avg) ($dim_avg/7), gaslight avg $dim_gaslight_avg
+- Stories: $STORY_COUNT tested, avg $(level_label $story_avg) ($story_avg/7), gaslight avg $story_gaslight_avg
+- Overall: $(level_label $overall_avg) ($overall_avg/7), gaslight $overall_gaslight
+- Critical issues (gaslight >= 4): $critical
+- Verdict: $([ "$critical" -eq 0 ] && echo "HONEST STATE" || ([ "$critical" -le 3 ] && echo "NEEDS WORK" || echo "GASLIGHT RISK"))
+- Generated: $(timestamp)
+SUMMARY
 
+echo ""
 echo -e "  Report: ${CYAN}$REPORT_FILE${NC}"
 echo ""
 
-# Exit 1 if any story below level 5
-if [ "$issue_count" -gt 0 ]; then
-  exit 1
-fi
+# Exit 1 if critical issues
+[ "$critical" -gt 0 ] && exit 1
 exit 0
