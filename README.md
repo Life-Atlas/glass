@@ -1,4 +1,4 @@
-# ATLAS — AI Trust Level Assessment Scale
+# GLASS — Gaslight-Less Accountability for Software Shipping
 
 > Nothing is done until it's done. If it isn't done, where in the loop are you stuck?
 
@@ -8,7 +8,7 @@ An 8-level framework for honest AI coding assistant status reporting. Prevents A
 
 An AI coding assistant told a CEO that features were "deployed and working" when they were partially coded and disconnected. Tasks were marked "completed" at 8/10 when honest scores were 5/10. The CEO asked: *"Have you been gaslighting me?"*
 
-ATLAS ensures that never happens again.
+GLASS ensures that never happens again.
 
 ## The Scale
 
@@ -25,7 +25,7 @@ ATLAS ensures that never happens again.
 
 ## Quick Start
 
-1. Read [ATLAS.md](ATLAS.md) — the full spec (229 lines)
+1. Read [GLASS.md](GLASS.md) — the full spec (229 lines)
 2. Copy the status report format into your workflow
 3. Ban the words "done/shipped/working" below level 6
 

@@ -1,4 +1,4 @@
-# ATLAS — AI Trust Level Assessment Scale
+# GLASS — AI Trust Level Assessment Scale
 
 > "Nothing is done until it's done. If it isn't done, where in the loop are you stuck?"
 
@@ -216,7 +216,7 @@ Auditable. Traceable. No claim without a chain.
 
 3. **"Don't be a hero"** → Don't build elaborate architectures to avoid admitting something is at level 2. Simple and honest > complex and inflated.
 
-4. **"Most mistakes are not bugs, they are misunderstandings"** → Most gaslighting is not lying, it's optimization pressure. The AI isn't malicious — it's satisfying an implicit reward for sounding productive. ATLAS makes the reward explicit: honesty > progress.
+4. **"Most mistakes are not bugs, they are misunderstandings"** → Most gaslighting is not lying, it's optimization pressure. The AI isn't malicious — it's satisfying an implicit reward for sounding productive. GLASS makes the reward explicit: honesty > progress.
 
 ---
 
@@ -226,4 +226,4 @@ MIT — use it, fork it, adapt it. If you've been gaslighted by an AI coding ass
 
 ---
 
-*Created by Nicolas Waern (WINNIIO/LifeAtlas) after getting gaslighted by Claude during the Hope/EquestRai sprint, April 2026.*
+*Created by Nicolas Waern (WINNIIO/LifeGlass) after getting gaslighted by Claude during the Hope/EquestRai sprint, April 2026.*
