@@ -10,6 +10,46 @@ A framework for honest AI status reporting. Born from a real incident where an A
 
 ---
 
+## PARAMETER #1 — PRODUCTION REALITY (Hard Gate)
+
+**This is evaluated before any other dimension. It gates the maximum possible score.**
+
+Ask these four questions about the app right now:
+
+| Question | Must Be True for "Production" |
+|---|---|
+| Is the app deployed and accessible to real users? | Public URL, no localhost, no `ngrok`, no demo-mode-only deploy |
+| Does it read/write from a real database? | Not mock data files, not `DEV_BYPASS_AUTH=true`, not seed-only data |
+| Can a real user sign in with real credentials? | JWT or OAuth flow works end-to-end, no bypass flags active in production |
+| Has at least one real user used it? | One non-developer human has logged in and performed a meaningful action |
+
+**Scoring rule — HARD CAP:**
+
+| Production Reality Status | Maximum Possible GLASS Score |
+|---|---|
+| All four questions are YES | No cap — score normally |
+| Any one question is NO | Score is capped at **4.0 / 10** regardless of code quality |
+| Two or more questions are NO | Score is capped at **2.0 / 10** |
+
+This cap cannot be overridden by any other dimension score. A beautiful, well-tested, CI-passing codebase that runs on mock data is a **demo**, not a product. The cap reflects that reality.
+
+**Why this exists:** On 2026-04-20, EquestRai was scored 8.5/10 ("production ready") while running entirely on mock data with `DEV_BYPASS_AUTH=true`. The CEO walked into a meeting believing the product was live. It was a demo. This parameter prevents that failure mode permanently.
+
+**How to report it:**
+
+```yaml
+production_reality:
+  publicly_deployed: false        # localhost / ngrok does not count
+  real_database: false            # mock data or DEV_BYPASS_AUTH=true = false
+  real_auth_works: false          # bypass flags active = false
+  real_users_exist: false         # 0 non-developer logins = false
+  nos_count: 4
+  score_cap: 2.0
+  note: "Polished demo. Not production. Max GLASS score = 2.0."
+```
+
+---
+
 ## The 8-Level Scale
 
 | Level | Label | Meaning | Evidence Required | Who Verifies |
@@ -23,7 +63,7 @@ A framework for honest AI status reporting. Born from a real incident where an A
 | 6 | **MACHINE-VERIFIED** | Automated e2e test confirms real request → real response | Playwright/curl output with timestamps | Automated verifier |
 | 7 | **ACCEPTED** | Passes "WWNDAT" — What Would Nicolas Do And Think | Shadow review or human confirmation | Digital twin or human |
 
-### Level 7: WWNDAT
+### Level 7: WWNDAT (What Would Nicolas Do And Think)
 
 The acceptance gate. Not "does it compile" but "would the stakeholder accept this as done?" Evaluated by:
 - A persona-based AI review using the stakeholder's known standards
@@ -32,9 +72,32 @@ The acceptance gate. Not "does it compile" but "would the stakeholder accept thi
 
 If WWNDAT fails, the feature drops back to whatever level the gap indicates.
 
+### Production Ready — Acceptance Test Requirement
+
+A product is NOT "Production Ready" unless it passes a **Playwright acceptance test suite** run against the **live production URL**. This is non-negotiable.
+
+The acceptance test must verify:
+1. **Auth works** — real sign-in with real credentials (email/password AND OAuth)
+2. **Real data loads** — dashboard shows data from Supabase, not mock arrays
+3. **Zero API storm** — no 500/429 errors in browser console after page load
+4. **Navigation works** — clicking entities opens detail views without error boundaries
+5. **Mobile renders** — 375x812 viewport: no horizontal scroll, tap targets >= 44x44
+6. **No regression** — every previously-passing test still passes
+
+```bash
+# Run acceptance tests against live URL
+cd apps/lifeatlas-equestrai
+npx playwright test --config=playwright.acceptance.config.ts
+```
+
+**The rule:** If the acceptance test suite doesn't exist or doesn't pass, the product is NOT Production Ready — it's DEPLOYED at best (Level 5). No exceptions. "Curl returns 200" is not acceptance. A human or a Playwright test clicking through the real UI with real auth is acceptance.
+
 ---
 
 ## Hard Rules
+
+### 0. Production Reality Gate Runs First
+Before recording any level or score, evaluate the four Production Reality questions above. Apply the score cap. Do not negotiate this cap. "The code is excellent" does not raise the cap. "We're close to launching" does not raise the cap. The cap reflects the current reality, not the intended reality.
 
 ### 1. Round DOWN
 When uncertain between two levels, pick the lower one. "I think it's deployed" = it's TESTED.

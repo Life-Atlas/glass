@@ -30,9 +30,21 @@ while [[ $# -gt 0 ]]; do
     --backend) BACKEND_PATH="$2"; shift 2 ;;
     --url) LIVE_URL="$2"; shift 2 ;;
     --report) REPORT_FILE="$2"; shift 2 ;;
+    # Production Reality overrides (manual flags for CI/CD environments)
+    --prod-deployed) PROD_DEPLOYED="$2"; shift 2 ;;   # "yes" or "no"
+    --prod-real-db) PROD_REAL_DB="$2"; shift 2 ;;     # "yes" or "no"
+    --prod-real-auth) PROD_REAL_AUTH="$2"; shift 2 ;; # "yes" or "no"
+    --prod-real-users) PROD_REAL_USERS="$2"; shift 2 ;; # "yes" or "no"
     *) echo "Unknown: $1"; exit 1 ;;
   esac
 done
+
+# Production Reality defaults — conservative (assume NOT production until proven)
+PROD_DEPLOYED="${PROD_DEPLOYED:-no}"
+PROD_REAL_DB="${PROD_REAL_DB:-no}"
+PROD_REAL_AUTH="${PROD_REAL_AUTH:-no}"
+PROD_REAL_USERS="${PROD_REAL_USERS:-no}"
+PROD_SCORE_CAP=100  # no cap by default; overridden below
 
 # ═══════════════════════════════════════════════════
 # HELPERS
@@ -129,6 +141,144 @@ echo "  Timestamp: $(timestamp)"
 echo "  Frontend:  ${FRONTEND_PATH:-not provided}"
 echo "  Backend:   ${BACKEND_PATH:-not provided}"
 echo "  Live URL:  ${LIVE_URL:-not provided}"
+echo ""
+
+# ═══════════════════════════════════════════════════
+# PRODUCTION REALITY GATE — runs before all scoring
+# ═══════════════════════════════════════════════════
+
+echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║  PARAMETER #1: PRODUCTION REALITY (Hard Gate)              ║${NC}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "  ${DIM}Answers these four questions about the app RIGHT NOW.${NC}"
+echo -e "  ${DIM}Any 'no' caps the maximum GLASS score. This gate cannot be negotiated.${NC}"
+echo ""
+
+# Auto-detect DEV_BYPASS_AUTH in frontend/backend source
+bypass_auth_count=0
+if [ -n "$FRONTEND_PATH" ]; then
+  bypass_auth_count=$(grep -rn "DEV_BYPASS_AUTH\|bypass.*auth\|BYPASS_AUTH" \
+    "$FRONTEND_PATH/src/" --include="*.tsx" --include="*.ts" 2>/dev/null | \
+    grep -v "false\|=false\|== false" | wc -l)
+  bypass_auth_count=$(echo "$bypass_auth_count" | tr -d '[:space:]')
+fi
+if [ -n "$BACKEND_PATH" ]; then
+  bypass_auth_be=$(grep -rn "DEV_BYPASS_AUTH\|bypass.*auth\|BYPASS_AUTH" \
+    "$BACKEND_PATH/" --include="*.py" 2>/dev/null | \
+    grep -v "false\|= False\|== False\|#" | wc -l)
+  bypass_auth_be=$(echo "$bypass_auth_be" | tr -d '[:space:]')
+  bypass_auth_count=$((bypass_auth_count + bypass_auth_be))
+fi
+
+# Auto-detect localhost-only frontend deploy
+localhost_only=0
+if [ -n "$FRONTEND_PATH" ]; then
+  vite_url=$(grep -r "VITE_API_URL" "$FRONTEND_PATH/.env" "$FRONTEND_PATH/.env.local" \
+    "$FRONTEND_PATH/.env.production" 2>/dev/null | grep -v "^#" | head -1)
+  if echo "$vite_url" | grep -q "localhost\|127\.0\.0\.1"; then
+    localhost_only=1
+  fi
+fi
+
+# Auto-detect mock data in frontend
+mock_data_count=0
+if [ -n "$FRONTEND_PATH" ]; then
+  mock_data_count=$(grep -rn "from.*data/mulawa-horses\|from.*data/skyroo-horses\|mockHorses\|MOCK_DATA" \
+    "$FRONTEND_PATH/src/" --include="*.tsx" --include="*.ts" 2>/dev/null | \
+    grep -v "import type" | grep -v node_modules | wc -l)
+  mock_data_count=$(echo "$mock_data_count" | tr -d '[:space:]')
+fi
+
+# Evaluate each production reality question
+prod_nos=0
+
+# Q1: Publicly deployed
+if [ "$PROD_DEPLOYED" = "yes" ] && [ "$localhost_only" -eq 0 ]; then
+  q1_status="${GREEN}YES${NC}"
+  q1_detail="Public URL confirmed, not localhost"
+else
+  q1_status="${RED}NO${NC}"
+  q1_detail="Not confirmed as publicly deployed (use --prod-deployed yes to override if wrong)"
+  prod_nos=$((prod_nos + 1))
+fi
+
+# Q2: Real database (not mock data)
+if [ "$PROD_REAL_DB" = "yes" ] && [ "$mock_data_count" -eq 0 ] && [ "$bypass_auth_count" -eq 0 ]; then
+  q2_status="${GREEN}YES${NC}"
+  q2_detail="No mock data imports or bypass flags detected"
+elif [ "$bypass_auth_count" -gt 0 ]; then
+  q2_status="${RED}NO${NC}"
+  q2_detail="${bypass_auth_count} bypass-auth references found in source — DEV_BYPASS_AUTH or equivalent active"
+  prod_nos=$((prod_nos + 1))
+elif [ "$mock_data_count" -gt 0 ]; then
+  q2_status="${RED}NO${NC}"
+  q2_detail="${mock_data_count} mock data imports found — frontend is not reading from real database"
+  prod_nos=$((prod_nos + 1))
+else
+  q2_status="${YELLOW}UNVERIFIED${NC}"
+  q2_detail="Could not confirm real database — use --prod-real-db yes to confirm"
+  prod_nos=$((prod_nos + 1))
+fi
+
+# Q3: Real auth works
+if [ "$PROD_REAL_AUTH" = "yes" ] && [ "$bypass_auth_count" -eq 0 ]; then
+  q3_status="${GREEN}YES${NC}"
+  q3_detail="Auth confirmed working end-to-end"
+elif [ "$bypass_auth_count" -gt 0 ]; then
+  q3_status="${RED}NO${NC}"
+  q3_detail="Auth bypass flags active (${bypass_auth_count} refs). Real users cannot authenticate normally."
+  prod_nos=$((prod_nos + 1))
+else
+  q3_status="${YELLOW}UNVERIFIED${NC}"
+  q3_detail="Use --prod-real-auth yes after confirming a real login works"
+  prod_nos=$((prod_nos + 1))
+fi
+
+# Q4: Real users exist
+if [ "$PROD_REAL_USERS" = "yes" ]; then
+  q4_status="${GREEN}YES${NC}"
+  q4_detail="At least one non-developer user confirmed"
+else
+  q4_status="${RED}NO${NC}"
+  q4_detail="No real users confirmed — use --prod-real-users yes after first real login"
+  prod_nos=$((prod_nos + 1))
+fi
+
+# Print Q&A
+printf "  %-60s %b\n" "1. Publicly deployed (not localhost, not demo-mode-only)?" "$q1_status"
+echo -e "     ${DIM}$q1_detail${NC}"
+echo ""
+printf "  %-60s %b\n" "2. Real database reads/writes (no mock data, no bypass)?" "$q2_status"
+echo -e "     ${DIM}$q2_detail${NC}"
+echo ""
+printf "  %-60s %b\n" "3. Real user can sign in with real credentials?" "$q3_status"
+echo -e "     ${DIM}$q3_detail${NC}"
+echo ""
+printf "  %-60s %b\n" "4. At least one real user has used the app?" "$q4_status"
+echo -e "     ${DIM}$q4_detail${NC}"
+echo ""
+
+# Apply the cap
+if [ "$prod_nos" -eq 0 ]; then
+  PROD_SCORE_CAP=100
+  prod_verdict="${GREEN}${BOLD}PRODUCTION${NC} — no cap applied"
+  prod_cap_label="none"
+elif [ "$prod_nos" -eq 1 ]; then
+  PROD_SCORE_CAP=40
+  prod_verdict="${YELLOW}${BOLD}NEAR-PRODUCTION${NC} — score capped at 40/100 (4.0/10)"
+  prod_cap_label="40/100 (4.0/10) — 1 production question unanswered"
+else
+  PROD_SCORE_CAP=20
+  prod_verdict="${RED}${BOLD}DEMO / NOT PRODUCTION${NC} — score capped at 20/100 (2.0/10)"
+  prod_cap_label="20/100 (2.0/10) — ${prod_nos} production questions answered NO"
+fi
+
+echo -e "  ${BOLD}Production Reality: $prod_verdict${NC}"
+echo -e "  ${BOLD}Score Cap: ${prod_cap_label}${NC}"
+echo ""
+echo -e "  ${DIM}NOTE: This cap cannot be removed by dimension scores, test counts, or CI status.${NC}"
+echo -e "  ${DIM}The cap reflects whether real users can use the product today.${NC}"
 echo ""
 
 # ═══════════════════════════════════════════════════
@@ -1077,6 +1227,14 @@ gaslight_penalty=$((critical * 5))
 total_score=$((raw_score - gaslight_penalty))
 [ "$total_score" -lt 0 ] && total_score=0
 
+# Apply Production Reality cap (HARD CAP — non-negotiable)
+uncapped_score=$total_score
+prod_cap_applied=false
+if [ "$total_score" -gt "$PROD_SCORE_CAP" ]; then
+  total_score=$PROD_SCORE_CAP
+  prod_cap_applied=true
+fi
+
 # Color the score
 if [ "$total_score" -ge 70 ]; then
   score_color="$GREEN"
@@ -1088,11 +1246,20 @@ fi
 
 echo -e "  ${BOLD}════════════════════════════════════════${NC}"
 echo -e "  ${BOLD}  TOTAL SCORE: ${score_color}${BOLD}${total_score}/100${NC}"
-echo -e "  ${DIM}  (${raw_score} raw - ${gaslight_penalty} gaslight penalty)${NC}"
+if [ "$prod_cap_applied" = true ]; then
+  echo -e "  ${RED}  PRODUCTION REALITY CAP APPLIED: code score was ${uncapped_score}/100, capped to ${PROD_SCORE_CAP}/100${NC}"
+  echo -e "  ${DIM}  (${raw_score} raw - ${gaslight_penalty} gaslight penalty = ${uncapped_score} → capped at ${PROD_SCORE_CAP} by Production Reality gate)${NC}"
+else
+  echo -e "  ${DIM}  (${raw_score} raw - ${gaslight_penalty} gaslight penalty)${NC}"
+fi
 echo -e "  ${BOLD}════════════════════════════════════════${NC}"
 echo ""
 
-if [ "$critical" -eq 0 ]; then
+if [ "$prod_cap_applied" = true ]; then
+  echo -e "  Verdict: ${RED}${BOLD}DEMO — NOT PRODUCTION${NC}"
+  echo -e "  ${DIM}  Score capped by Production Reality gate (${prod_nos} unanswered questions).${NC}"
+  echo -e "  ${DIM}  The code quality score of ${uncapped_score}/100 does not reflect user-facing reality.${NC}"
+elif [ "$critical" -eq 0 ]; then
   echo -e "  Verdict: ${GREEN}${BOLD}HONEST STATE${NC} — no critical gaslight issues"
 elif [ "$critical" -le 3 ]; then
   echo -e "  Verdict: ${YELLOW}${BOLD}NEEDS WORK${NC} — $critical items with gaslight >= 4"
@@ -1111,6 +1278,18 @@ cat > "$REPORT_FILE" << REPORT_HEADER
 **Frontend:** ${FRONTEND_PATH:-not provided}
 **Backend:** ${BACKEND_PATH:-not provided}
 **Live URL:** ${LIVE_URL:-not provided}
+
+## PARAMETER #1 — PRODUCTION REALITY
+
+| Question | Answer | Detail |
+|---|---|---|
+| Publicly deployed (not localhost)? | ${PROD_DEPLOYED} | ${q1_detail} |
+| Real database (no mock/bypass)? | $([ "$bypass_auth_count" -gt 0 ] || [ "$mock_data_count" -gt 0 ] && echo "NO" || echo "${PROD_REAL_DB}") | ${q2_detail} |
+| Real auth works end-to-end? | $([ "$bypass_auth_count" -gt 0 ] && echo "NO" || echo "${PROD_REAL_AUTH}") | ${q3_detail} |
+| At least one real user? | ${PROD_REAL_USERS} | ${q4_detail} |
+
+**Production Reality Status:** ${prod_nos} question(s) answered NO
+**Score Cap:** ${prod_cap_label}
 
 ## Dimension Scores
 
@@ -1144,8 +1323,10 @@ cat >> "$REPORT_FILE" << SUMMARY
 - Stories: $STORY_COUNT tested, avg $(level_label $story_avg) ($story_avg/7), gaslight avg $story_gaslight_avg
 - Overall: $(level_label $overall_avg) ($overall_avg/7), gaslight $overall_gaslight
 - Critical issues (gaslight >= 4): $critical
-- **TOTAL SCORE: ${total_score}/100** (${raw_score} raw - ${gaslight_penalty} gaslight penalty)
-- Verdict: $([ "$critical" -eq 0 ] && echo "HONEST STATE" || ([ "$critical" -le 3 ] && echo "NEEDS WORK" || echo "GASLIGHT RISK"))
+- Code quality score: ${uncapped_score}/100 (${raw_score} raw - ${gaslight_penalty} gaslight penalty)
+- Production Reality cap: ${prod_cap_label}
+- **TOTAL SCORE: ${total_score}/100** $([ "$prod_cap_applied" = true ] && echo "(CAPPED from ${uncapped_score} by Production Reality gate)" || echo "(${raw_score} raw - ${gaslight_penalty} gaslight penalty)")
+- Verdict: $([ "$prod_cap_applied" = true ] && echo "DEMO — NOT PRODUCTION" || ([ "$critical" -eq 0 ] && echo "HONEST STATE" || ([ "$critical" -le 3 ] && echo "NEEDS WORK" || echo "GASLIGHT RISK")))
 - Generated: $(timestamp)
 SUMMARY
 
